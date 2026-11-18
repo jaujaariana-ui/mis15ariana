@@ -16,8 +16,8 @@
 /build
 
 # misc
-#.env.local
-#.env*.local
+.env.local
+.env*.local
 .pem
 *.pem
 
