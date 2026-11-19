@@ -35,6 +35,14 @@ function isCameraSupported(): boolean {
          typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
+// Helper: add a timeout to any promise
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(resolve).catch(reject).finally(() => clearTimeout(timer));
+  });
+}
+
 function classifyCameraError(err: unknown): CameraError {
   if (err instanceof DOMException) {
     switch (err.name) {
@@ -110,7 +118,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   // Start camera with the given facing mode
   const startCamera = useCallback(async (mode?: 'user' | 'environment') => {
-    if (!isMountedRef.current) return;
+    console.log('[Camera] startCamera llamado, isMounted:', isMountedRef.current);
+    if (!isMountedRef.current) {
+      console.log('[Camera] startCamera abortado: componente desmontado');
+      return;
+    }
 
     setLoading(true);
     setCameraError(null);
@@ -127,19 +139,62 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Stop any existing stream
     stopCamera();
 
+    // Timeout de seguridad: si getUserMedia no responde en 5 segundos, mostrar error
+    let getUserMediaTimedOut = false;
+    const getUserMediaTimeout = setTimeout(() => {
+      getUserMediaTimedOut = true;
+      console.error('[Camera] TIMEOUT: getUserMedia no respondió en 5 segundos');
+      if (isMountedRef.current) {
+        setCameraError({
+          type: 'unknown',
+          message: 'La cámara no responde. Esto es común en apps instaladas. Puedes seleccionar una fotografía desde tu galería.',
+        });
+        setLoading(false);
+      }
+    }, 5000);
+
     try {
-      // Directly request camera access - permissions.query is not reliable on Android PWA
-      // The browser will show the permission prompt automatically
-      console.log('Solicitando acceso a la cámara con facingMode:', currentMode);
-      
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: currentMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      console.log('[Camera] Solicitando acceso a la cámara con facingMode:', currentMode);
+      console.log('[Camera] navigator.mediaDevices:', navigator.mediaDevices != null);
+      console.log('[Camera] getUserMedia existe:', typeof navigator.mediaDevices?.getUserMedia === 'function');
+
+      if (typeof window !== 'undefined') {
+        console.log('[Camera] Protocolo:', window.location.protocol);
+        console.log('[Camera] Host:', window.location.host);
+      }
+
+      if (!navigator.mediaDevices) {
+        throw new Error('navigator.mediaDevices no está disponible en este navegador');
+      }
+
+      if (typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        throw new Error('getUserMedia no está disponible en este navegador');
+      }
+
+      console.log('[Camera] Llamando a getUserMedia...');
+      const stream = await withTimeout(
+        navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: currentMode,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        }),
+        5000,
+        'getUserMedia no respondió en 5 segundos'
+      );
+
+      console.log('[Camera] ¡Stream obtenido exitosamente! Tracks:', stream.getTracks().length);
+
+      // Clean up the timeout since we got a response
+      clearTimeout(getUserMediaTimeout);
+
+      if (getUserMediaTimedOut) {
+        console.log('[Camera] Stream obtenido pero timeout ya había disparado, ignorando');
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
 
       if (!isMountedRef.current) {
         stream.getTracks().forEach(track => track.stop());
@@ -218,10 +273,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     } catch (err) {
       if (!isMountedRef.current) return;
 
-      console.error('Error al acceder a la cámara:', err);
-      console.error('Tipo de error:', err instanceof Error ? err.constructor.name : typeof err);
-      console.error('Nombre del error:', err instanceof DOMException ? err.name : 'N/A');
-      console.error('Mensaje del error:', err instanceof Error ? err.message : String(err));
+      console.error('[Camera] ERROR al acceder a la cámara:', err);
+      console.error('[Camera] Tipo de error:', err instanceof Error ? err.constructor.name : typeof err);
+      console.error('[Camera] Nombre del error:', err instanceof DOMException ? err.name : 'N/A');
+      console.error('[Camera] Mensaje del error:', err instanceof Error ? err.message : String(err));
+      console.error('[Camera] Stack trace:', err instanceof Error ? err.stack : 'N/A');
       
       const classifiedError = classifyCameraError(err);
       setCameraError(classifiedError);
@@ -231,17 +287,20 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   // Initialize camera on mount
   useEffect(() => {
+    console.log('[Camera] Componente montado, inicializando...');
     isMountedRef.current = true;
     setOrientation(getOrientation());
 
     // Check if camera is supported
     if (!isCameraSupported()) {
+      console.error('[Camera] Cámara NO soportada en este navegador');
       setCameraError({
         type: 'not_supported',
         message: 'Tu navegador no soporta el acceso a la cámara. Usa un navegador moderno o selecciona una fotografía desde tu galería.',
       });
       setLoading(false);
     } else {
+      console.log('[Camera] Cámara soportada, llamando a startCamera()');
       startCamera();
     }
 
@@ -554,9 +613,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       <div className="absolute inset-0 bg-black">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-900 to-slate-800">
-            <div className="text-center">
+            <div className="text-center px-6">
               <div className="w-12 h-12 border-4 border-white/20 border-t-white/80 rounded-full animate-spin mx-auto mb-4" />
-              <div className="text-white text-sm">Preparando cámara...</div>
+              <div className="text-white text-base font-medium mb-2">Preparando cámara...</div>
+              <div className="text-white/60 text-sm mb-6">Esto puede tardar unos segundos</div>
+              <button
+                onClick={handleCancel}
+                className="bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
+                type="button"
+              >
+                📷 Usar galería de fotos
+              </button>
             </div>
           </div>
         ) : cameraError ? (
