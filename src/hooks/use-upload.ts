@@ -55,103 +55,145 @@ export function useUpload(eventId: string, guestId: string) {
         return false;
       }
 
-      // Get signed upload params from API
+      // Get signed upload params from API with retry for high-concurrency scenarios
       updateItemStatus(itemId, 'uploading', 10);
-      let uploadUrl: string;
-      let storageKey: string;
-      let signature: string;
-      let timestamp: number;
-      let apiKey: string;
-      try {
-        const uploadUrlResponse = await fetch('/api/photos/upload-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            event_id: eventId,
-            guest_id: guestId,
-            mime_type: compressed.mimeType,
-            original_filename: file.name,
-          }),
-        });
-
-        if (!uploadUrlResponse.ok) {
-          const errorData = await uploadUrlResponse.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Error al obtener parámetros de subida');
+      let uploadUrl = '';
+      let storageKey = '';
+      let signature = '';
+      let timestamp = 0;
+      let apiKey = '';
+      let uploadUrlSuccess = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
+        try {
+          const uploadUrlResponse = await fetch('/api/photos/upload-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event_id: eventId,
+              guest_id: guestId,
+              mime_type: compressed.mimeType,
+              original_filename: file.name,
+            }),
+          });
 
-        const data = await uploadUrlResponse.json();
-        uploadUrl = data.uploadUrl;
-        storageKey = data.storageKey;
-        signature = data.signature;
-        timestamp = data.timestamp;
-        apiKey = data.apiKey;
-      } catch (err) {
-        updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de conexión');
+          if (!uploadUrlResponse.ok) {
+            const errorData = await uploadUrlResponse.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Error al obtener parámetros de subida');
+          }
+
+          const data = await uploadUrlResponse.json();
+          uploadUrl = data.uploadUrl;
+          storageKey = data.storageKey;
+          signature = data.signature;
+          timestamp = data.timestamp;
+          apiKey = data.apiKey;
+          uploadUrlSuccess = true;
+          break;
+        } catch (err) {
+          if (attempt === 2) {
+            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de conexión');
+            return false;
+          }
+        }
+      }
+      if (!uploadUrlSuccess) {
+        updateItemStatus(itemId, 'error', 0, 'No se pudo conectar al servidor');
         return false;
       }
 
-      // Upload directly to Cloudinary
+      // Upload directly to Cloudinary with retry for network instability
       updateItemStatus(itemId, 'uploading', 30);
       let secureUrl = storageKey; // fallback to storage_key if Cloudinary doesn't return URL
-      try {
-        const formData = new FormData();
-        formData.append('file', compressed.blob as Blob, 'photo.jpg');
-        formData.append('api_key', apiKey);
-        formData.append('timestamp', String(timestamp));
-        formData.append('signature', signature);
-        const folder = `xalt-moments/events/${eventId}`;
-        formData.append('folder', folder);
-        // storageKey now includes the full path: xalt-moments/events/{eventId}/{name}.{ext}
-        // public_id should be just the filename part
-        const publicId = storageKey.replace(`${folder}/`, '');
-        formData.append('public_id', publicId);
-        formData.append('resource_type', 'image');
-
-        const uploadResponse = await fetch(uploadUrl, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          throw new Error(`Error al subir la foto: ${errorText}`);
+      let cloudinarySuccess = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
+        try {
+          const formData = new FormData();
+          formData.append('file', compressed.blob as Blob, 'photo.jpg');
+          formData.append('api_key', apiKey);
+          formData.append('timestamp', String(timestamp));
+          formData.append('signature', signature);
+          const folder = `xalt-moments/events/${eventId}`;
+          formData.append('folder', folder);
+          // storageKey now includes the full path: xalt-moments/events/{eventId}/{name}.{ext}
+          // public_id should be just the filename part
+          const publicId = storageKey.replace(`${folder}/`, '');
+          formData.append('public_id', publicId);
+          formData.append('resource_type', 'image');
 
-        // Parse Cloudinary response to get the secure_url
-        const cloudinaryResult = await uploadResponse.json();
-        if (cloudinaryResult.secure_url) {
-          secureUrl = cloudinaryResult.secure_url;
+          const uploadResponse = await fetch(uploadUrl, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Error al subir la foto: ${errorText}`);
+          }
+
+          // Parse Cloudinary response to get the secure_url
+          const cloudinaryResult = await uploadResponse.json();
+          if (cloudinaryResult.secure_url) {
+            secureUrl = cloudinaryResult.secure_url;
+          }
+          cloudinarySuccess = true;
+          break;
+        } catch (err) {
+          if (attempt === 2) {
+            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de red');
+            return false;
+          }
         }
-      } catch (err) {
-        updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de red');
+      }
+      if (!cloudinarySuccess) {
+        updateItemStatus(itemId, 'error', 0, 'No se pudo subir la foto a Cloudinary');
         return false;
       }
 
       updateItemStatus(itemId, 'uploading', 80);
 
-      // Register photo in database
-      try {
-        const registerResponse = await fetch('/api/photos/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            event_id: eventId,
-            guest_id: guestId,
-            storage_key: secureUrl, // Store the full Cloudinary URL
-            original_filename: file.name,
-            mime_type: compressed.mimeType,
-            file_size: compressed.blob.size,
-            width: compressed.width,
-            height: compressed.height,
-          }),
-        });
-
-        if (!registerResponse.ok) {
-          const errorData = await registerResponse.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Error al registrar la foto');
+      // Register photo in database with retry
+      let registerSuccess = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
-      } catch (err) {
-        updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de registro');
+        try {
+          const registerResponse = await fetch('/api/photos/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event_id: eventId,
+              guest_id: guestId,
+              storage_key: secureUrl, // Store the full Cloudinary URL
+              original_filename: file.name,
+              mime_type: compressed.mimeType,
+              file_size: compressed.blob.size,
+              width: compressed.width,
+              height: compressed.height,
+            }),
+          });
+
+          if (!registerResponse.ok) {
+            const errorData = await registerResponse.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Error al registrar la foto');
+          }
+          registerSuccess = true;
+          break;
+        } catch (err) {
+          if (attempt === 2) {
+            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de registro');
+            return false;
+          }
+        }
+      }
+      if (!registerSuccess) {
+        updateItemStatus(itemId, 'error', 0, 'No se pudo registrar la foto');
         return false;
       }
 
@@ -164,7 +206,7 @@ export function useUpload(eventId: string, guestId: string) {
   const uploadFiles = useCallback(
     async (files: File[]) => {
       const newItems: PhotoUploadItem[] = files.map((file, index) => ({
-        id: `upload-${Date.now()}-${index}`,
+        id: `upload-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 7)}`,
         name: file.name,
         previewUrl: URL.createObjectURL(file),
         status: 'pending' as const,
@@ -184,6 +226,8 @@ export function useUpload(eventId: string, guestId: string) {
       let completed = 0;
       let failed = 0;
 
+      // Upload files sequentially to avoid overwhelming the browser or server
+      // with concurrent requests. With 20+ users, this prevents thundering herd.
       for (let i = 0; i < files.length; i++) {
         const item = newItems[i];
         const success = await uploadSingleFile(files[i], item.id, item.previewUrl);

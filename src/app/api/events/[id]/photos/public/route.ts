@@ -5,11 +5,19 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+// Enable Edge runtime for faster responses and better concurrency
+export const runtime = 'edge';
+
+// Force cache for photo listings — with 20-100 concurrent users,
+// caching reduces database load dramatically. Photos are updated via
+// Supabase Realtime, so stale cache is acceptable (max 2 seconds).
+export const revalidate = 2;
+
 export async function GET(request: NextRequest, { params }: Props) {
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '30');
+    const limit = Math.min(parseInt(searchParams.get('limit') || '30'), 100);
     const offset = parseInt(searchParams.get('offset') || '0');
 
     const adminClient = createAdminClient();
@@ -51,7 +59,11 @@ export async function GET(request: NextRequest, { params }: Props) {
       guest_display_name: photo.guest_profiles?.display_name || null,
     }));
 
-    return NextResponse.json({ photos: mappedPhotos });
+    // Set cache headers for CDN edge caching
+    const response = NextResponse.json({ photos: mappedPhotos });
+    response.headers.set('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=10');
+    response.headers.set('Vary', 'Accept-Encoding');
+    return response;
   } catch (error) {
     console.error('Public photos API error:', error);
     return NextResponse.json({ error: 'Error al obtener fotos' }, { status: 500 });
