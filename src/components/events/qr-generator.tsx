@@ -22,7 +22,10 @@ const statusLabel: Record<string, string> = {
 export default function QRGenerator({ eventId, eventSlug, eventName }: QRGeneratorProps) {
   const [copied, setCopied] = useState(false);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  // Detect the current URL from the browser, falling back to env var or localhost
+  const appUrl = typeof window !== 'undefined'
+    ? window.location.origin
+    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
   const eventUrl = `${appUrl}/e/${eventSlug}`;
 
   const handleCopy = async () => {

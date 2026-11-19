@@ -33,7 +33,10 @@ export async function GET(request: NextRequest, { params }: Props) {
       return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // Detect the actual URL from the request headers (works on Vercel and localhost)
+    const host = request.headers.get('host') || 'localhost:3000';
+    const protocol = request.headers.get('x-forwarded-proto') || 'http';
+    const appUrl = `${protocol}://${host}`;
     const eventUrl = `${appUrl}/e/${event.slug}`;
 
     const { searchParams } = new URL(request.url);
