@@ -123,6 +123,33 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
 
       try {
+        // CRITICAL: Wait for video element to be ready BEFORE acquiring the stream.
+        // The FullscreenDialog uses a Portal that renders to a separate DOM node,
+        // so the video ref may not be available immediately. Checking before acquiring
+        // the stream avoids holding an active stream while waiting for the DOM.
+        let videoReady = false;
+        for (let vAttempt = 0; vAttempt < 20; vAttempt++) {
+          if (videoRef.current) {
+            videoReady = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (currentAbort?.signal.aborted) {
+            if (mountedRef.current) setLoading(false);
+            return;
+          }
+        }
+
+        if (!videoReady) {
+          console.error('Video element no está disponible después de 2s');
+          if (mountedRef.current) {
+            setError('No se pudo inicializar la vista previa de la cámara. Intenta de nuevo.');
+            setLoading(false);
+          }
+          lastError = new Error('Video element not ready');
+          break;
+        }
+
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: currentFacingMode,
@@ -137,32 +164,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           mediaStream.getTracks().forEach(t => t.stop());
           console.log('startCamera abortado después de obtener stream');
           if (mountedRef.current) {
-            setLoading(false);
-          }
-          return;
-        }
-
-        // CRITICAL: Wait for video element to be ready
-        // The video ref might not be ready immediately after stream acquisition
-        let videoReady = false;
-        for (let vAttempt = 0; vAttempt < 10; vAttempt++) {
-          if (videoRef.current) {
-            videoReady = true;
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (currentAbort?.signal.aborted) {
-            mediaStream.getTracks().forEach(t => t.stop());
-            if (mountedRef.current) setLoading(false);
-            return;
-          }
-        }
-
-        if (!videoReady) {
-          mediaStream.getTracks().forEach(t => t.stop());
-          console.error('Video element no está disponible después de 1s');
-          if (mountedRef.current) {
-            setError('No se pudo inicializar la vista previa de la cámara.');
             setLoading(false);
           }
           return;
@@ -268,14 +269,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Set initial orientation
     setOrientation(getOrientation());
 
-    // Small delay to allow the dialog and video element to be fully mounted in the DOM
-    // before requesting camera access. Without this delay, videoRef.current may be null
-    // when the stream is acquired, resulting in a black screen.
+    // Delay to allow the FullscreenDialog Portal to fully render the video element
+    // in the DOM before requesting camera access. The Portal renders to a separate
+    // DOM node (usually document.body), which takes longer than a regular dialog.
+    // 1000ms ensures the video element is available when startCamera runs.
     const timer = setTimeout(() => {
       if (mountedRef.current) {
         startCamera();
       }
-    }, 500);
+    }, 1000);
 
     return () => {
       clearTimeout(timer);
