@@ -32,6 +32,7 @@ export function DeleteEventDialog({ eventId, eventName }: DeleteEventDialogProps
     try {
       const response = await fetch(`/api/events/${eventId}`, {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (!response.ok) {

@@ -80,12 +80,17 @@ export async function DELETE(request: NextRequest, { params }: Props) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.log('DELETE event: Auth failed - user not found');
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
+    console.log(`DELETE event: User ${user.id} trying to delete event ${id}`);
+
     const adminClient = createAdminClient();
+
     const hasAccess = await verifyEventAccess(adminClient, id, user.id);
     if (!hasAccess) {
+      console.log(`DELETE event: User ${user.id} does not have access to event ${id}`);
       return NextResponse.json({ error: 'No tienes acceso' }, { status: 403 });
     }
 

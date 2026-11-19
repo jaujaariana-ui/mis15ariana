@@ -75,33 +75,86 @@ export async function verifyEventAccess(
   eventId: string,
   userId: string
 ): Promise<boolean> {
-  // userId is the Supabase auth user ID — translate it to the organizers table ID
-  const { data: organizer } = await supabase
-    .from('organizers')
-    .select('id')
-    .eq('auth_user_id', userId)
-    .single();
-
-  if (!organizer) return false;
-
-  const organizerId = organizer.id;
-
-  const { data: event } = await supabase
+  // First, get the event to check its organizer_id
+  const { data: event, error: eventError } = await supabase
     .from('events')
     .select('organizer_id')
     .eq('id', eventId)
     .single();
 
-  if (!event) return false;
+  if (eventError) {
+    console.log(`verifyEventAccess: Error querying event ${eventId}:`, eventError.message);
+  }
 
-  if (event.organizer_id === organizerId) return true;
+  if (!event) {
+    console.log(`verifyEventAccess: Event ${eventId} not found`);
+    return false;
+  }
 
-  const { data: isAdmin } = await supabase
+  console.log(`verifyEventAccess: Event ${eventId} has organizer_id=${event.organizer_id}, user auth_id=${userId}`);
+
+  // Case 1: Check if organizer_id directly matches the auth user ID
+  // (some events may have been created storing auth.users.id directly)
+  if (event.organizer_id === userId) {
+    console.log(`verifyEventAccess: Event organizer_id matches auth user ID directly ✓`);
+    return true;
+  }
+
+  // Case 2: Translate auth user ID to organizers table ID
+  const { data: organizer, error: orgError } = await supabase
+    .from('organizers')
+    .select('id')
+    .eq('auth_user_id', userId)
+    .single();
+
+  if (orgError) {
+    console.log(`verifyEventAccess: Error querying organizer for user ${userId}:`, orgError.message);
+  }
+
+  if (!organizer) {
+    console.log(`verifyEventAccess: No organizer found for auth user ${userId}`);
+    return false;
+  }
+
+  const organizerId = organizer.id;
+  console.log(`verifyEventAccess: User ${userId} -> Organizer ${organizerId}`);
+
+  // Check if the user is the organizer via organizers table
+  if (event.organizer_id === organizerId) {
+    console.log(`verifyEventAccess: User is the event organizer ✓`);
+    return true;
+  }
+
+  // Check if the user is an admin of the event
+  const { data: isAdmin, error: adminError } = await supabase
     .from('event_admins')
     .select('id')
     .eq('event_id', eventId)
     .eq('user_id', organizerId)
     .single();
 
-  return !!isAdmin;
+  if (adminError) {
+    console.log(`verifyEventAccess: Error querying event_admins:`, adminError.message);
+  }
+
+  if (isAdmin) {
+    console.log(`verifyEventAccess: User is an event admin ✓`);
+    return true;
+  }
+
+  // Case 3: Check event_admins using auth user ID directly (legacy case)
+  const { data: isAdminDirect } = await supabase
+    .from('event_admins')
+    .select('id')
+    .eq('event_id', eventId)
+    .eq('user_id', userId)
+    .single();
+
+  if (isAdminDirect) {
+    console.log(`verifyEventAccess: User is an event admin (direct auth ID match) ✓`);
+    return true;
+  }
+
+  console.log(`verifyEventAccess: User is NOT the organizer and NOT an admin ✗`);
+  return false;
 }
