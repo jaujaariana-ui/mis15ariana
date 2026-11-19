@@ -152,15 +152,19 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     setPreviewUrl(null);
     setCapturedBlob(null);
     stopCurrentStream();
-    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+    // Small delay to ensure the camera hardware is released before switching
+    setTimeout(() => {
+      setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+    }, 200);
   }, [previewUrl, stopCurrentStream]);
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    // Small delay to ensure the previous stream is fully stopped before starting new one
+    // Increased delay to ensure the previous camera hardware is fully released
+    // Android needs more time to switch between front and rear cameras
     const timer = setTimeout(() => {
       startCamera();
-    }, 300);
+    }, 500);
     return () => clearTimeout(timer);
   }, [facingMode, startCamera]);
 
