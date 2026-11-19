@@ -4,7 +4,6 @@ import { useEffect, useCallback, useState } from 'react';
 import { Photo } from '@/types/photo.types';
 import { formatRelativeTime } from '@/utils/date-formatter';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
 import { getPhotoUrlClient } from '@/lib/cloudinary/client-url';
 
 interface LightboxProps {
@@ -16,12 +15,12 @@ interface LightboxProps {
 }
 
 const avatarColors = [
-  'bg-purple-100 text-purple-700',
-  'bg-pink-100 text-pink-700',
-  'bg-blue-100 text-blue-700',
-  'bg-green-100 text-green-700',
-  'bg-orange-100 text-orange-700',
-  'bg-red-100 text-red-700',
+  'bg-slate-100 text-slate-700',
+  'bg-blue-50 text-blue-700',
+  'bg-rose-50 text-rose-700',
+  'bg-emerald-50 text-emerald-700',
+  'bg-amber-50 text-amber-700',
+  'bg-violet-50 text-violet-700',
 ];
 
 const getInitials = (name: string) => {
@@ -97,18 +96,18 @@ export default function Lightbox({ photo, onClose, photos, currentIndex = 0, onN
 
   return (
     <div
-      className="fixed inset-0 bg-black/95 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Visor de fotos"
     >
       {/* Top bar with photo info */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4 z-10">
+      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 to-transparent p-3 sm:p-4 z-10">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-3">
-            <Avatar>
-              <AvatarFallback className={getAvatarColor(photo.guest_id || '')}>
+            <Avatar className="w-8 h-8 ring-2 ring-white/20">
+              <AvatarFallback className={`text-xs ${getAvatarColor(photo.guest_id || '')}`}>
                 {photo.guest_display_name ? getInitials(photo.guest_display_name) : '?'}
               </AvatarFallback>
             </Avatar>
@@ -116,31 +115,38 @@ export default function Lightbox({ photo, onClose, photos, currentIndex = 0, onN
               <p className="text-white font-medium text-sm">
                 {photo.guest_display_name || 'Anónimo'}
               </p>
-              <p className="text-white/60 text-xs">
+              <p className="text-white/50 text-xs">
                 {formatRelativeTime(photo.created_at)}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {hasMultiple && (
-              <span className="text-white/60 text-xs mr-2">
+              <span className="hidden sm:inline text-white/50 text-xs mr-2 font-mono">
                 {currentIndex + 1} / {photos.length}
               </span>
             )}
-            <Button
-              variant="secondary"
-              size="sm"
-              className="bg-white/20 text-white hover:bg-white/30"
-              onClick={handleDownload}
-            >
-              ⬇ Descargar
-            </Button>
             <button
-              className="text-white/80 hover:text-white p-2"
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors backdrop-blur-sm"
+              aria-label="Descargar foto"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span className="hidden sm:inline">Descargar</span>
+            </button>
+            <button
+              className="text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
               onClick={onClose}
               aria-label="Cerrar visor"
             >
-              ✕
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
         </div>
@@ -150,7 +156,7 @@ export default function Lightbox({ photo, onClose, photos, currentIndex = 0, onN
       {hasMultiple && (
         <>
           <button
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white p-3 bg-black/30 hover:bg-black/50 rounded-full transition-colors z-10"
+            className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-2 sm:p-3 bg-black/20 hover:bg-black/40 rounded-full transition-all z-10"
             onClick={(e) => {
               e.stopPropagation();
               const prevIndex = currentIndex > 0 ? currentIndex - 1 : photos.length - 1;
@@ -159,10 +165,12 @@ export default function Lightbox({ photo, onClose, photos, currentIndex = 0, onN
             }}
             aria-label="Foto anterior"
           >
-            ‹
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
           </button>
           <button
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white p-3 bg-black/30 hover:bg-black/50 rounded-full transition-colors z-10"
+            className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-2 sm:p-3 bg-black/20 hover:bg-black/40 rounded-full transition-all z-10"
             onClick={(e) => {
               e.stopPropagation();
               const nextIndex = currentIndex < photos.length - 1 ? currentIndex + 1 : 0;
@@ -171,27 +179,48 @@ export default function Lightbox({ photo, onClose, photos, currentIndex = 0, onN
             }}
             aria-label="Foto siguiente"
           >
-            ›
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
           </button>
         </>
       )}
 
       {/* Image */}
-      <div className="max-w-full max-h-full flex items-center justify-center p-16 sm:p-20" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full h-full flex items-center justify-center p-4 sm:p-8 md:p-12" onClick={(e) => e.stopPropagation()}>
         {!imageLoaded && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
           </div>
         )}
         <img
           src={fullSizeUrl}
           alt={`Foto por ${photo.guest_display_name || 'Anónimo'}`}
-          className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${
+          className={`max-w-full max-h-full object-contain transition-opacity duration-500 rounded-sm ${
             imageLoaded ? 'opacity-100' : 'opacity-0'
           }`}
           onLoad={() => setImageLoaded(true)}
         />
       </div>
+
+      {/* Bottom indicator dots for mobile */}
+      {hasMultiple && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 sm:hidden z-10">
+          <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm rounded-full px-3 py-1.5">
+            {photos.slice(Math.max(0, currentIndex - 1), currentIndex + 2).map((_, i) => {
+              const dotIndex = Math.max(0, currentIndex - 1) + i;
+              return (
+                <div
+                  key={dotIndex}
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${
+                    dotIndex === currentIndex ? 'bg-white w-4' : 'bg-white/40'
+                  }`}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

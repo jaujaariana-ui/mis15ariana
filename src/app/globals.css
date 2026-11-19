@@ -128,3 +128,84 @@
     @apply font-sans;
   }
 }
+
+/* Premium event gallery styles */
+@layer components {
+  .font-playfair {
+    font-family: var(--font-playfair), Georgia, 'Times New Roman', serif;
+  }
+
+  /* Premium gradient backgrounds for events */
+  .event-hero-gradient {
+    background: linear-gradient(135deg, #e8f4f8 0%, #f5f0eb 25%, #faf8f5 50%, #f0f4f8 75%, #eaf2f7 100%);
+  }
+
+  /* Subtle shimmer animation for loading states */
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Fade-in animation for gallery items */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.5s ease-out both;
+  }
+
+  /* Staggered animation delays for gallery items */
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+  .stagger-6 { animation-delay: 0.3s; }
+
+  /* Premium card styles */
+  .premium-card {
+    @apply bg-white/80 backdrop-blur-md rounded-2xl shadow-lg border border-white/20;
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-white/60 backdrop-blur-xl border border-white/30 shadow-sm;
+  }
+
+  /* Premium button styles */
+  .premium-btn {
+    @apply bg-gradient-to-r from-slate-800 to-slate-700 text-white font-medium rounded-xl shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0;
+  }
+
+  .premium-btn-secondary {
+    @apply bg-white/80 backdrop-blur-sm text-slate-700 font-medium rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0;
+  }
+
+  /* Premium input styles */
+  .premium-input {
+    @apply bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition-all duration-200 placeholder:text-slate-400;
+  }
+
+  /* Decorative floral pattern overlay */
+  .floral-overlay {
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+}

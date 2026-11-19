@@ -1,10 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Progress } from '@/components/ui/progress';
-import { Card, CardContent } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
 
 export interface PhotoUploadItem {
   id: string;
@@ -36,26 +32,33 @@ export function UploadProgress({ items, onRetry, onComplete, onCancel }: UploadP
   const allDone = active === 0;
 
   return (
-    <Card className="mb-6 shadow-sm border-0 ring-1 ring-gray-100">
-      <CardContent className="p-4">
+    <div className="glass rounded-2xl p-4 mb-6 animate-fade-in-up">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-gray-700">
-            {allDone ? 'Subida completada' : 'Subiendo fotos...'}
-          </span>
-          <span className="text-sm text-gray-500">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${allDone ? 'bg-emerald-400' : 'bg-blue-400 animate-pulse'}`} />
+            <span className="text-sm font-medium text-slate-700">
+              {allDone ? 'Subida completada' : 'Subiendo fotos...'}
+            </span>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
             {completed}/{total}
           </span>
         </div>
 
-        <Progress value={overallProgress} className="h-2 mb-4" />
+        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-4">
+          <div
+            className="h-full bg-gradient-to-r from-slate-400 to-slate-600 rounded-full transition-all duration-300"
+            style={{ width: `${overallProgress}%` }}
+          />
+        </div>
 
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-3 p-2 rounded-lg bg-gray-50"
+              className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50/80"
             >
-              <div className="w-12 h-12 rounded-md overflow-hidden shrink-0 bg-gray-200">
+              <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-slate-200">
                 <img
                   src={item.previewUrl}
                   alt={item.name}
@@ -64,24 +67,29 @@ export function UploadProgress({ items, onRetry, onComplete, onCancel }: UploadP
               </div>
 
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-600 truncate">{item.name}</p>
+                <p className="text-xs text-slate-600 truncate">{item.name}</p>
                 <div className="flex items-center gap-2 mt-1">
                   {item.status === 'pending' && (
-                    <span className="text-[10px] text-gray-400">Esperando...</span>
+                    <span className="text-[10px] text-slate-400">Esperando...</span>
                   )}
                   {item.status === 'compressing' && (
-                    <span className="text-[10px] text-purple-500">Comprimiendo...</span>
+                    <span className="text-[10px] text-slate-500">Comprimiendo...</span>
                   )}
                   {item.status === 'uploading' && (
                     <>
-                      <Progress value={item.progress} className="h-1 w-16" />
-                      <span className="text-[10px] text-blue-500">
+                      <div className="h-1 w-16 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-slate-400 rounded-full transition-all"
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500">
                         {Math.round(item.progress)}%
                       </span>
                     </>
                   )}
                   {item.status === 'success' && (
-                    <span className="text-[10px] text-green-600">✓ Subida</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">✓ Completada</span>
                   )}
                   {item.status === 'error' && (
                     <span className="text-[10px] text-red-500">
@@ -92,14 +100,12 @@ export function UploadProgress({ items, onRetry, onComplete, onCancel }: UploadP
               </div>
 
               {item.status === 'error' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-xs shrink-0"
+                <button
+                  className="h-6 px-2.5 text-xs shrink-0 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-colors"
                   onClick={() => onRetry(item.id)}
                 >
                   Reintentar
-                </Button>
+                </button>
               )}
             </div>
           ))}
@@ -108,32 +114,29 @@ export function UploadProgress({ items, onRetry, onComplete, onCancel }: UploadP
         {allDone && (
           <div className="mt-4 flex gap-2">
             {failed > 0 && (
-              <Alert variant="destructive" className="flex-1">
-                <AlertDescription className="text-xs">
+              <div className="flex-1 bg-red-50/80 border border-red-100 rounded-xl px-3 py-2">
+                <p className="text-xs text-red-600">
                   {failed} foto(s) no se pudieron subir
-                </AlertDescription>
-              </Alert>
+                </p>
+              </div>
             )}
-            <Button
-              variant="outline"
-              className="flex-1 text-sm"
+            <button
+              className="premium-btn-secondary flex-1 py-2 text-sm"
               onClick={onComplete}
             >
               Cerrar
-            </Button>
+            </button>
           </div>
         )}
 
         {onCancel && active > 0 && (
-          <Button
-            variant="ghost"
-            className="w-full mt-2 text-sm"
+          <button
+            className="w-full mt-2 py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
             onClick={onCancel}
           >
             Cancelar subida
-          </Button>
+          </button>
         )}
-      </CardContent>
-    </Card>
+      </div>
   );
 }

@@ -45,7 +45,7 @@ export default function GalleryGrid({
 
   return (
     <div>
-      <div className="columns-2 sm:columns-3 md:columns-4 gap-2 sm:gap-3 space-y-2 sm:space-y-3">
+      <div className="columns-2 sm:columns-2 md:columns-3 lg:columns-4 gap-3 sm:gap-4 space-y-3 sm:space-y-4">
         {photos.map((photo) => (
           <GalleryItem
             key={photo.id}
@@ -64,7 +64,10 @@ export default function GalleryGrid({
           }}
           className="py-8 text-center"
         >
-          <div className="inline-block w-6 h-6 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" />
+          <div className="inline-flex items-center gap-2 text-sm text-slate-400">
+            <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+            <span>Cargando más fotos...</span>
+          </div>
         </div>
       )}
     </div>

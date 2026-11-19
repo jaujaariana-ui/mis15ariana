@@ -6,16 +6,13 @@ import { Photo } from '@/types/photo.types';
 import { useGallery } from '@/hooks/use-gallery';
 import { useGuestSession } from '@/hooks/use-guest-session';
 import { useUpload } from '@/hooks/use-upload';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FullscreenDialog, FullscreenDialogContent } from '@/components/ui/fullscreen-dialog';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { CameraCapture } from '@/components/camera/camera-capture';
 import { FileSelector } from '@/components/upload/file-selector';
 import { UploadProgress } from '@/components/upload/upload-progress';
-import EventHeader from '@/components/events/event-header';
+import EventHeroBanner from '@/components/events/event-hero-banner';
+import GuestEntry from '@/components/events/guest-entry';
 import GalleryGrid from '@/components/gallery/gallery-grid';
 import Lightbox from '@/components/gallery/lightbox';
 import EmptyState from '@/components/gallery/empty-state';
@@ -122,59 +119,31 @@ export default function EventPageClient({ event }: Props) {
   const currentLightboxPhoto = lightboxIndex !== null ? photos[lightboxIndex] || null : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      {/* Event Header */}
-      <EventHeader event={event} photoCount={photos.length} />
+    <div className="min-h-screen bg-slate-50">
+      {/* Hero Banner */}
+      <EventHeroBanner event={event} photoCount={photos.length} />
 
-      <main className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
+      <main className="max-w-6xl mx-auto px-4 -mt-2 pb-8">
         {/* Guest Entry */}
         {!guest && !guestLoading && (
-          <Card className="mb-6 shadow-sm border-0 ring-1 ring-gray-100">
-            <CardContent className="p-6">
-              <div className="text-center mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 mb-1">
-                  🎉 Bienvenido al evento
-                </h2>
-                <p className="text-sm text-gray-600">
-                  Ingresa tu nombre para compartir y ver fotos
-                </p>
-              </div>
-              {guestError && (
-                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 flex items-center justify-between">
-                  <span>{guestError}</span>
-                  <button onClick={() => setGuestError(null)} className="text-red-400 hover:text-red-600 ml-2">
-                    ✕
-                  </button>
-                </div>
-              )}
-              <div className="flex gap-2 max-w-sm mx-auto">
-                <Input
-                  placeholder="Tu nombre o apodo"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !joinLoading && handleJoin()}
-                  maxLength={30}
-                  className="flex-1"
-                  autoFocus
-                />
-                <Button onClick={handleJoin} disabled={!displayName.trim() || joinLoading}>
-                  {joinLoading ? 'Entrando...' : 'Entrar'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <GuestEntry
+            displayName={displayName}
+            setDisplayName={setDisplayName}
+            onJoin={handleJoin}
+            loading={joinLoading}
+            error={guestError}
+            setError={setGuestError}
+          />
         )}
 
         {/* Guest Loading */}
         {guestLoading && (
-          <Card className="mb-6 shadow-sm border-0 ring-1 ring-gray-100">
-            <CardContent className="p-6">
-              <div className="text-center">
-                <div className="w-6 h-6 border-2 border-purple-300 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-gray-500 mt-2">Cargando...</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="glass rounded-2xl p-6 mb-6">
+            <div className="text-center">
+              <div className="w-6 h-6 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin mx-auto" />
+              <p className="text-sm text-slate-400 mt-3">Cargando tu perfil...</p>
+            </div>
+          </div>
         )}
 
         {/* Consent Modal */}
@@ -182,10 +151,13 @@ export default function EventPageClient({ event }: Props) {
 
         {/* Delete Error */}
         {deleteError && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 flex items-center justify-between">
+          <div className="mb-4 bg-red-50/80 border border-red-100 text-red-600 text-sm rounded-xl p-3 flex items-center justify-between animate-fade-in-up">
             <span>{deleteError}</span>
-            <button onClick={() => setDeleteError(null)} className="text-red-400 hover:text-red-600 ml-2">
-              ✕
+            <button onClick={() => setDeleteError(null)} className="text-red-400 hover:text-red-600 ml-2 shrink-0">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
         )}
@@ -194,11 +166,18 @@ export default function EventPageClient({ event }: Props) {
         {guest && !showConsent && (
           <div className="mb-6">
             <div className="flex gap-2">
-              <Button className="flex-1" type="button" onClick={() => setCameraOpen(true)}>
-                <span className="mr-2">📷</span>
+              <button
+                type="button"
+                className="premium-btn flex-1 flex items-center justify-center gap-2 py-3 text-sm"
+                onClick={() => setCameraOpen(true)}
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
                 <span className="hidden sm:inline">Tomar foto</span>
                 <span className="sm:hidden">Cámara</span>
-              </Button>
+              </button>
               <FullscreenDialog open={cameraOpen} onOpenChange={setCameraOpen}>
                 <FullscreenDialogContent>
                   <CameraCapture
@@ -208,19 +187,20 @@ export default function EventPageClient({ event }: Props) {
                 </FullscreenDialogContent>
               </FullscreenDialog>
 
-              <Button
-                variant="secondary"
-                className="flex-1"
+              <button
+                className="premium-btn-secondary flex-1 flex items-center justify-center gap-2 py-3 text-sm"
                 onClick={() => setGalleryOpen(true)}
               >
-                <span className="mr-2">📁</span>
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
                 <span className="hidden sm:inline">Seleccionar fotos</span>
                 <span className="sm:hidden">Galería</span>
-              </Button>
+              </button>
               <Dialog open={galleryOpen} onOpenChange={setGalleryOpen}>
-                <DialogContent className="max-w-sm">
+                <DialogContent className="max-w-sm rounded-2xl border-0 bg-white/95 backdrop-blur-xl shadow-2xl">
                   <DialogHeader>
-                    <DialogTitle>Seleccionar fotos</DialogTitle>
+                    <DialogTitle className="font-playfair text-lg text-center">Seleccionar fotos</DialogTitle>
                   </DialogHeader>
                   <FileSelector
                     onSelect={handleFileSelect}
@@ -245,10 +225,13 @@ export default function EventPageClient({ event }: Props) {
 
         {/* Gallery Stats */}
         {guest && photos.length > 0 && (
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-gray-600">
-              <span className="font-medium">{photos.length}</span> fotos compartidas
-            </p>
+          <div className="flex items-center justify-between mb-4 px-1">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+              <p className="text-sm text-slate-500">
+                <span className="font-medium text-slate-700">{photos.length}</span> {photos.length === 1 ? 'fotografía' : 'fotografías'} compartidas
+              </p>
+            </div>
           </div>
         )}
 
@@ -282,10 +265,17 @@ export default function EventPageClient({ event }: Props) {
       <OfflineBanner />
 
       {/* Footer */}
-      <footer className="border-t bg-white mt-12 py-6">
-        <div className="max-w-6xl mx-auto px-4 text-center">
-          <p className="text-xs text-gray-400">
-            Powered by Xalt Moments
+      <footer className="border-t border-slate-100 bg-white/50 backdrop-blur-sm mt-8">
+        <div className="max-w-6xl mx-auto px-4 py-8 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="h-px w-8 bg-slate-200" />
+            <svg className="w-4 h-4 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+            </svg>
+            <div className="h-px w-8 bg-slate-200" />
+          </div>
+          <p className="text-xs text-slate-400 font-medium tracking-wide">
+            Xalt Moments
           </p>
         </div>
       </footer>
