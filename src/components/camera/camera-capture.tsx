@@ -71,15 +71,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Stop any existing stream first
     stopCurrentStream();
 
-    // Try to enumerate and stop all video tracks that might be held by this page
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      console.log('Video devices found:', videoDevices.length);
-    } catch (e) {
-      console.warn('Could not enumerate devices:', e);
-    }
-
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -123,33 +114,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
 
       try {
-        // CRITICAL: Wait for video element to be ready BEFORE acquiring the stream.
-        // The FullscreenDialog uses a Portal that renders to a separate DOM node,
-        // so the video ref may not be available immediately. Checking before acquiring
-        // the stream avoids holding an active stream while waiting for the DOM.
-        let videoReady = false;
-        for (let vAttempt = 0; vAttempt < 20; vAttempt++) {
-          if (videoRef.current) {
-            videoReady = true;
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (currentAbort?.signal.aborted) {
-            if (mountedRef.current) setLoading(false);
-            return;
-          }
-        }
-
-        if (!videoReady) {
-          console.error('Video element no está disponible después de 2s');
-          if (mountedRef.current) {
-            setError('No se pudo inicializar la vista previa de la cámara. Intenta de nuevo.');
-            setLoading(false);
-          }
-          lastError = new Error('Video element not ready');
-          break;
-        }
-
+        // Acquire the media stream first (don't wait for video element yet)
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: currentFacingMode,
@@ -169,9 +134,36 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           return;
         }
 
+        // NOW wait for the video element to be ready in the DOM
+        // The FullscreenDialog uses a Portal that renders to a separate DOM node
+        let videoReady = false;
+        for (let vAttempt = 0; vAttempt < 30; vAttempt++) {
+          if (videoRef.current) {
+            videoReady = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (currentAbort?.signal.aborted) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            if (mountedRef.current) setLoading(false);
+            return;
+          }
+        }
+
+        if (!videoReady) {
+          mediaStream.getTracks().forEach(t => t.stop());
+          console.error('Video element no está disponible después de 3s');
+          if (mountedRef.current) {
+            setError('No se pudo inicializar la vista previa de la cámara. Intenta de nuevo.');
+            setLoading(false);
+          }
+          lastError = new Error('Video element not ready');
+          break;
+        }
+
         streamRef.current = mediaStream;
         
-        // Wait for the video element to be ready and play
+        // Attach stream to video and play
         // iOS Safari requires multiple attempts and a delay after setting srcObject
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
@@ -221,6 +213,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         break;
       } catch (err) {
         lastError = err;
+        console.warn(`Error al acceder a cámara (intento ${attempt + 1}/${maxRetries}):`, err);
         
         // Check if this is a "camera in use" error worth retrying
         const isCameraInUse = err instanceof DOMException && err.name === 'NotReadableError';
@@ -230,8 +223,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           // Other errors (permission denied, no camera) shouldn't be retried
           break;
         }
-        
-        console.warn(`Cámara ocupada (intento ${attempt + 1}/${maxRetries}):`, err);
         
         // Clean up the failed stream attempt
         if (streamRef.current) {
@@ -257,7 +248,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           ? 'La cámara está siendo usada por otra aplicación. Por favor, cierra otras apps que usen la cámara (Zoom, Teams, WhatsApp, cámara del sistema) e intenta de nuevo.'
           : lastError instanceof DOMException && lastError.name === 'ConcurrentModificationError'
           ? 'La cámara está siendo usada por otra pestaña o aplicación. Cierra las otras pestañas que usen la cámara e intenta de nuevo.'
-          : 'No se pudo acceder a la cámara. Intenta seleccionar fotos desde la galería.';
+          : 'No se pudo acceder a la cámara. Intenta de nuevo o selecciona fotos desde la galería.';
       setError(message);
     }
 
@@ -272,12 +263,12 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Delay to allow the FullscreenDialog Portal to fully render the video element
     // in the DOM before requesting camera access. The Portal renders to a separate
     // DOM node (usually document.body), which takes longer than a regular dialog.
-    // 1000ms ensures the video element is available when startCamera runs.
+    // 2000ms ensures the video element is available when startCamera runs.
     const timer = setTimeout(() => {
       if (mountedRef.current) {
         startCamera();
       }
-    }, 1000);
+    }, 2000);
 
     return () => {
       clearTimeout(timer);
