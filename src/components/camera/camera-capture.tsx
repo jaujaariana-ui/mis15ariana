@@ -35,29 +35,16 @@ function isCameraSupported(): boolean {
          typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
-// Detect if the app is running as an installed PWA
-// In installed PWAs on Android, getUserMedia is unreliable or hangs indefinitely
-function isInstalledPWA(): boolean {
-  if (typeof window === 'undefined') return false;
+// Log if running as PWA for debugging purposes
+function logPWAStatus(): void {
+  if (typeof window === 'undefined') return;
   
-  // Check if running in standalone mode (installed PWA)
-  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
-    return true;
+  const isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const hasSW = 'serviceWorker' in navigator && navigator.serviceWorker.controller != null;
+  
+  if (isStandalone || hasSW) {
+    console.log('[Camera] App corriendo como PWA instalada - standalone:', isStandalone, 'SW:', hasSW);
   }
-  
-  // Check for PWA-specific navigator properties
-  if (typeof navigator !== 'undefined') {
-    const nav = navigator as any;
-    if (nav.standalone === true) return true; // iOS Safari
-    if (nav.standalone !== undefined && nav.standalone) return true;
-  }
-  
-  // Check for service worker registration (common in PWAs)
-  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-    return true;
-  }
-  
-  return false;
 }
 
 // Helper: add a timeout to any promise
@@ -316,18 +303,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     isMountedRef.current = true;
     setOrientation(getOrientation());
 
-    // CRITICAL: In installed PWA on Android, getUserMedia hangs indefinitely.
-    // Skip camera entirely and show gallery option immediately.
-    if (isInstalledPWA()) {
-      console.warn('[Camera] App instalada (PWA) detectada - saltando cámara, usando galería');
-      setCameraError({
-        type: 'not_supported',
-        message: 'La cámara no funciona en esta app instalada. Selecciona una fotografía desde tu galería.',
-      });
-      setLoading(false);
-    }
+    // Log PWA status for debugging
+    logPWAStatus();
+
     // Check if camera is supported
-    else if (!isCameraSupported()) {
+    if (!isCameraSupported()) {
       console.error('[Camera] Cámara NO soportada en este navegador');
       setCameraError({
         type: 'not_supported',
