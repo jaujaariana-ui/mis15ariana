@@ -316,13 +316,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     isMountedRef.current = true;
     setOrientation(getOrientation());
 
-    // Warn if running as installed PWA but still try the camera
+    // CRITICAL: In installed PWA on Android, getUserMedia hangs indefinitely.
+    // Skip camera entirely and show gallery option immediately.
     if (isInstalledPWA()) {
-      console.warn('[Camera] App instalada (PWA) detectada - intentando cámara de todos modos');
+      console.warn('[Camera] App instalada (PWA) detectada - saltando cámara, usando galería');
+      setCameraError({
+        type: 'not_supported',
+        message: 'La cámara no funciona en esta app instalada. Selecciona una fotografía desde tu galería.',
+      });
+      setLoading(false);
     }
-
     // Check if camera is supported
-    if (!isCameraSupported()) {
+    else if (!isCameraSupported()) {
       console.error('[Camera] Cámara NO soportada en este navegador');
       setCameraError({
         type: 'not_supported',
