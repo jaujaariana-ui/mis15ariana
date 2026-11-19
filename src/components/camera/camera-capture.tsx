@@ -3,6 +3,22 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 
+type CameraErrorType = 
+  | 'none'
+  | 'not_allowed'
+  | 'not_found'
+  | 'not_readable'
+  | 'overconstrained'
+  | 'abort'
+  | 'security'
+  | 'not_supported'
+  | 'unknown';
+
+interface CameraError {
+  type: CameraErrorType;
+  message: string;
+}
+
 interface CameraCaptureProps {
   onCapture: (blob: Blob) => void;
   onCancel: () => void;
@@ -13,13 +29,67 @@ function getOrientation(): 'portrait' | 'landscape' {
   return screen.orientation.type.includes('portrait') ? 'portrait' : 'landscape';
 }
 
+function isCameraSupported(): boolean {
+  return typeof navigator !== 'undefined' && 
+         navigator.mediaDevices != null && 
+         typeof navigator.mediaDevices.getUserMedia === 'function';
+}
+
+function classifyCameraError(err: unknown): CameraError {
+  if (err instanceof DOMException) {
+    switch (err.name) {
+      case 'NotAllowedError':
+        return {
+          type: 'not_allowed',
+          message: 'Para tomar una fotografía, permite el acceso a la cámara desde la configuración de tu navegador.',
+        };
+      case 'NotFoundError':
+        return {
+          type: 'not_found',
+          message: 'No encontramos una cámara disponible en este dispositivo. Puedes seleccionar una fotografía desde tu galería.',
+        };
+      case 'NotReadableError':
+        return {
+          type: 'not_readable',
+          message: 'La cámara está siendo usada por otra aplicación. Cierra otras apps que usen la cámara e intenta de nuevo.',
+        };
+      case 'OverconstrainedError':
+        return {
+          type: 'overconstrained',
+          message: 'La configuración de la cámara no es compatible con este dispositivo. Inténtalo nuevamente o selecciona una fotografía.',
+        };
+      case 'AbortError':
+        return {
+          type: 'abort',
+          message: 'La inicialización de la cámara fue interrumpida. Inténtalo nuevamente.',
+        };
+      case 'SecurityError':
+        return {
+          type: 'security',
+          message: 'No se puede acceder a la cámara por restricciones de seguridad. Asegúrate de usar HTTPS o localhost.',
+        };
+      default:
+        return {
+          type: 'unknown',
+          message: 'Ocurrió un problema al activar tu cámara. Inténtalo nuevamente o selecciona una fotografía de tu dispositivo.',
+        };
+    }
+  }
+
+  return {
+    type: 'unknown',
+    message: 'Ocurrió un problema al activar tu cámara. Inténtalo nuevamente o selecciona una fotografía de tu dispositivo.',
+  };
+}
+
 export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isMountedRef = useRef(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<CameraError | null>(null);
   const [loading, setLoading] = useState(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -38,8 +108,10 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   // Start camera with the given facing mode
   const startCamera = useCallback(async (mode?: 'user' | 'environment') => {
+    if (!isMountedRef.current) return;
+    
     setLoading(true);
-    setError(null);
+    setCameraError(null);
     
     const currentMode = mode || facingMode;
     
@@ -56,6 +128,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         audio: false,
       });
       
+      if (!isMountedRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      
       streamRef.current = stream;
       
       if (videoRef.current) {
@@ -63,33 +140,37 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         await videoRef.current.play();
       }
       
-      setLoading(false);
-    } catch (err) {
-      console.error('Error al acceder a la cámara:', err);
-      
-      let message = 'No se pudo acceder a la cámara. Intenta de nuevo o selecciona fotos desde la galería.';
-      
-      if (err instanceof DOMException) {
-        if (err.name === 'NotAllowedError') {
-          message = 'Permiso de cámara denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.';
-        } else if (err.name === 'NotFoundError') {
-          message = 'No se encontró cámara en este dispositivo. Intenta seleccionar fotos desde la galería.';
-        } else if (err.name === 'NotReadableError') {
-          message = 'La cámara está siendo usada por otra aplicación. Por favor, cierra otras apps que usen la cámara e intenta de nuevo.';
-        }
+      if (isMountedRef.current) {
+        setLoading(false);
       }
+    } catch (err) {
+      if (!isMountedRef.current) return;
       
-      setError(message);
+      console.error('Error al acceder a la cámara:', err);
+      const classifiedError = classifyCameraError(err);
+      setCameraError(classifiedError);
       setLoading(false);
     }
   }, [facingMode, stopCamera]);
 
   // Initialize camera on mount
   useEffect(() => {
+    isMountedRef.current = true;
     setOrientation(getOrientation());
-    startCamera();
+    
+    // Check if camera is supported
+    if (!isCameraSupported()) {
+      setCameraError({
+        type: 'not_supported',
+        message: 'Tu navegador no soporta el acceso a la cámara. Usa un navegador moderno o selecciona una fotografía desde tu galería.',
+      });
+      setLoading(false);
+    } else {
+      startCamera();
+    }
     
     return () => {
+      isMountedRef.current = false;
       stopCamera();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -235,29 +316,136 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     return () => clearTimeout(timer);
   }, [countdown, capturePhoto]);
 
+  // Render error state based on error type
+  const renderErrorState = () => {
+    if (!cameraError) return null;
+
+    const { type, message } = cameraError;
+
+    // Error icon based on type
+    const getErrorIcon = () => {
+      switch (type) {
+        case 'not_allowed':
+          return '🔒';
+        case 'not_found':
+          return '📷';
+        case 'not_readable':
+          return '⚠️';
+        case 'overconstrained':
+          return '⚙️';
+        case 'abort':
+          return '⏸️';
+        case 'security':
+          return '🔐';
+        case 'not_supported':
+          return '🌐';
+        default:
+          return '❌';
+      }
+    };
+
+    // Error title based on type
+    const getErrorTitle = () => {
+      switch (type) {
+        case 'not_allowed':
+          return 'Necesitamos acceso a tu cámara';
+        case 'not_found':
+          return 'Cámara no disponible';
+        case 'not_readable':
+          return 'Cámara ocupada';
+        case 'overconstrained':
+          return 'Configuración no compatible';
+        case 'abort':
+          return 'Inicialización interrumpida';
+        case 'security':
+          return 'Restricción de seguridad';
+        case 'not_supported':
+          return 'Navegador no compatible';
+        default:
+          return 'No pudimos iniciar la cámara';
+      }
+    };
+
+    // Buttons based on error type
+    const renderButtons = () => {
+      switch (type) {
+        case 'not_allowed':
+          return (
+            <button
+              onClick={handleCancel}
+              className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
+              type="button"
+            >
+              Entendido
+            </button>
+          );
+        case 'not_found':
+          return (
+            <button
+              onClick={handleCancel}
+              className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
+              type="button"
+            >
+              Elegir fotografía
+            </button>
+          );
+        case 'not_supported':
+          return (
+            <button
+              onClick={handleCancel}
+              className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
+              type="button"
+            >
+              Elegir fotografía
+            </button>
+          );
+        default:
+          return (
+            <>
+              <button
+                onClick={() => startCamera()}
+                className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors mb-3 w-full"
+                type="button"
+              >
+                🔄 Reintentar
+              </button>
+              <button
+                onClick={handleCancel}
+                className="bg-white/10 hover:bg-white/20 text-white/80 font-medium px-6 py-3 rounded-xl transition-colors w-full"
+                type="button"
+              >
+                Elegir fotografía
+              </button>
+            </>
+          );
+      }
+    };
+
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-6 bg-gradient-to-b from-slate-900 to-slate-800">
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-4">{getErrorIcon()}</div>
+          <h3 className="text-white text-xl font-semibold mb-3">{getErrorTitle()}</h3>
+          <p className="text-white/70 text-sm mb-6 leading-relaxed">{message}</p>
+          {renderButtons()}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col h-screen w-screen bg-black overflow-hidden" style={{ touchAction: 'auto' }}>
       {/* Video/Preview area - fills entire screen, adapts to orientation */}
       <div className="absolute inset-0 bg-black">
         {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-white/60 text-sm">Iniciando cámara...</div>
-          </div>
-        ) : error ? (
-          <div className="absolute inset-0 flex items-center justify-center px-6">
-            <div className="text-center max-w-sm">
-              <div className="text-6xl mb-4">📷</div>
-              <h3 className="text-white text-xl font-semibold mb-3">No se pudo acceder a la cámara</h3>
-              <p className="text-white/70 text-sm mb-6 leading-relaxed">{error}</p>
-              <button
-                onClick={handleCancel}
-                className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors mb-3 w-full"
-                type="button"
-              >
-                ← Volver y seleccionar fotos
-              </button>
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-900 to-slate-800">
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-white/20 border-t-white/80 rounded-full animate-spin mx-auto mb-4" />
+              <div className="text-white text-sm">Preparando cámara...</div>
             </div>
           </div>
+        ) : cameraError ? (
+          renderErrorState()
         ) : previewUrl ? (
           <img
             src={previewUrl}
@@ -302,7 +490,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       </div>
 
       {/* UI Overlay - buttons stay fixed regardless of orientation */}
-      {!previewUrl && !error && (
+      {!previewUrl && !cameraError && (
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 55 }}>
           {/* Cancel button at top left */}
           {!loading && (
@@ -325,7 +513,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               {/* Switch camera button */}
               <button
                 onClick={switchCamera}
-                disabled={!!error || loading}
+                disabled={loading}
                 className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 active:bg-black/60 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
                 style={{ touchAction: 'manipulation' }}
                 type="button"
@@ -339,7 +527,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               {/* Timer button */}
               <button
                 onClick={startCountdown}
-                disabled={!!error || loading}
+                disabled={loading}
                 className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 active:bg-black/60 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 text-lg"
                 style={{ touchAction: 'manipulation' }}
                 type="button"
@@ -355,7 +543,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
             <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center pointer-events-auto" style={{ zIndex: 60 }}>
               <button
                 onClick={capturePhoto}
-                disabled={!!error || loading}
+                disabled={loading}
                 className="w-20 h-20 rounded-full bg-white hover:bg-gray-200 active:bg-gray-300 transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg border-4 border-white/30"
                 style={{ touchAction: 'manipulation' }}
                 type="button"
@@ -390,20 +578,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               Cancelar
             </Button>
           </div>
-        </div>
-      )}
-
-      {/* Error message */}
-      {error && !loading && (
-        <div className="absolute top-20 left-4 right-4 mx-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center" style={{ zIndex: 60 }}>
-          <p className="mb-2">{error}</p>
-          <button
-            onClick={() => startCamera()}
-            className="bg-red-500/40 hover:bg-red-500/60 text-white text-sm px-4 py-2 rounded-md transition-colors"
-            type="button"
-          >
-            🔄 Reintentar
-          </button>
         </div>
       )}
     </div>
