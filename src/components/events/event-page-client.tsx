@@ -9,6 +9,7 @@ import { useUpload } from '@/hooks/use-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FullscreenDialog, FullscreenDialogContent } from '@/components/ui/fullscreen-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { CameraCapture } from '@/components/camera/camera-capture';
@@ -198,17 +199,14 @@ export default function EventPageClient({ event }: Props) {
                 <span className="hidden sm:inline">Tomar foto</span>
                 <span className="sm:hidden">Cámara</span>
               </Button>
-              <Dialog open={cameraOpen} onOpenChange={setCameraOpen}>
-                <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Tomar foto</DialogTitle>
-                  </DialogHeader>
+              <FullscreenDialog open={cameraOpen} onOpenChange={setCameraOpen}>
+                <FullscreenDialogContent>
                   <CameraCapture
                     onCapture={handleCameraCapture}
                     onCancel={handleCameraCancel}
                   />
-                </DialogContent>
-              </Dialog>
+                </FullscreenDialogContent>
+              </FullscreenDialog>
 
               <Button
                 variant="secondary"
