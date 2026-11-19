@@ -32,6 +32,7 @@ export default function EventPageClient({ event }: Props) {
   const [joinLoading, setJoinLoading] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraKey, setCameraKey] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -59,6 +60,7 @@ export default function EventPageClient({ event }: Props) {
 
   const handleCameraCancel = useCallback(() => {
     setCameraOpen(false);
+    setCameraKey((prev) => prev + 1);
   }, []);
 
   const handleFileSelect = useCallback(async (files: File[]) => {
@@ -182,6 +184,7 @@ export default function EventPageClient({ event }: Props) {
               <FullscreenDialog open={cameraOpen} onOpenChange={setCameraOpen}>
                 <FullscreenDialogContent>
                   <CameraCapture
+                    key={cameraKey}
                     onCapture={handleCameraCapture}
                     onCancel={handleCameraCancel}
                   />

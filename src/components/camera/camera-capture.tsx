@@ -187,10 +187,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   useEffect(() => {
     // Set initial orientation
     setOrientation(getOrientation());
-    
-    startCamera();
-    
+
+    // Small delay to allow the browser to fully release the camera hardware
+    // from a previous instance before attempting to acquire it again
+    const timer = setTimeout(() => {
+      startCamera();
+    }, 300);
+
     return () => {
+      clearTimeout(timer);
       stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
