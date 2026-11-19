@@ -8,8 +8,6 @@ interface CameraCaptureProps {
   onCancel: () => void;
 }
 
-// Global lock to prevent multiple camera instances across the entire app
-let cameraInstanceActive = false;
 
 function getOrientation(): 'portrait' | 'landscape' {
   if (typeof window === 'undefined') return 'portrait';
@@ -27,8 +25,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [blocked, setBlocked] = useState(false);
-
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -38,26 +34,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       videoRef.current.srcObject = null;
     }
   }, []);
-
-  // Check if another camera instance is already active
-  useEffect(() => {
-    if (cameraInstanceActive) {
-      // Another instance is already using the camera — close this one immediately
-      console.warn('Ya hay una instancia de cámara activa. Cerrando esta instancia duplicada.');
-      setBlocked(true);
-      stopCurrentStream();
-      onCancel();
-      return;
-    }
-
-    // Claim the camera lock for this instance
-    cameraInstanceActive = true;
-
-    // Release the lock when this component unmounts
-    return () => {
-      cameraInstanceActive = false;
-    };
-  }, [onCancel, stopCurrentStream]);
 
   const startCamera = useCallback(async (maxRetries: number = 3, facingModeOverride?: 'user' | 'environment') => {
     setLoading(true);
@@ -180,24 +156,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     setLoading(false);
   }, [facingMode, stopCurrentStream]);
 
-  // If blocked by another instance, don't start camera
-  if (blocked) {
-    return null;
-  }
-
   // Initialize camera when component mounts
   useEffect(() => {
     // Set initial orientation
     setOrientation(getOrientation());
 
-    // Small delay to allow the browser to fully release the camera hardware
-    // from a previous instance before attempting to acquire it again
-    const timer = setTimeout(() => {
-      startCamera();
-    }, 300);
+    // Start camera immediately on mount
+    startCamera();
 
     return () => {
-      clearTimeout(timer);
       stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
