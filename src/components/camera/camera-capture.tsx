@@ -114,7 +114,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
 
       try {
-        // Acquire the media stream first (don't wait for video element yet)
+        // Acquire the media stream
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: currentFacingMode,
@@ -134,25 +134,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           return;
         }
 
-        // NOW wait for the video element to be ready in the DOM
-        // The FullscreenDialog uses a Portal that renders to a separate DOM node
-        let videoReady = false;
-        for (let vAttempt = 0; vAttempt < 30; vAttempt++) {
-          if (videoRef.current) {
-            videoReady = true;
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (currentAbort?.signal.aborted) {
-            mediaStream.getTracks().forEach(t => t.stop());
-            if (mountedRef.current) setLoading(false);
-            return;
-          }
-        }
-
-        if (!videoReady) {
+        // The video element should already be in the DOM (checked by useEffect mount),
+        // but verify as a safety check
+        if (!videoRef.current) {
           mediaStream.getTracks().forEach(t => t.stop());
-          console.error('Video element no está disponible después de 3s');
+          console.error('Video element no está disponible');
           if (mountedRef.current) {
             setError('No se pudo inicializar la vista previa de la cámara. Intenta de nuevo.');
             setLoading(false);
@@ -165,9 +151,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         
         // Attach stream to video and play
         // iOS Safari requires multiple attempts and a delay after setting srcObject
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-        }
+        videoRef.current.srcObject = mediaStream;
         
         // Try to play with multiple retries for iOS compatibility
         let played = false;
@@ -185,6 +169,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
             if (videoRef.current) {
               await videoRef.current.play();
               played = true;
+              console.log('Video reproduciéndose exitosamente');
             }
           } catch (playErr) {
             // Retry on play failure
@@ -202,10 +187,23 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
             if (videoRef.current && !currentAbort?.signal.aborted) {
               await videoRef.current.play();
               played = true;
+              console.log('Video reproduciéndose después de load()');
             }
           } catch (e) {
             console.warn('Final play attempt failed:', e);
           }
+        }
+
+        // If video still didn't play, mark as error
+        if (!played) {
+          mediaStream.getTracks().forEach(t => t.stop());
+          console.error('No se pudo reproducir el video después de todos los intentos');
+          if (mountedRef.current) {
+            setError('No se pudo iniciar la cámara. Intenta de nuevo.');
+            setLoading(false);
+          }
+          lastError = new Error('Video play failed');
+          break;
         }
         
         // Success! Break out of retry loop
@@ -256,19 +254,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [facingMode, stopCurrentStream]);
 
   // Initialize camera when component mounts
+  // Since the camera is now rendered directly without a Portal, the video element
+  // is available immediately. A small delay ensures React has committed the DOM.
   useEffect(() => {
     // Set initial orientation
     setOrientation(getOrientation());
 
-    // Delay to allow the FullscreenDialog Portal to fully render the video element
-    // in the DOM before requesting camera access. The Portal renders to a separate
-    // DOM node (usually document.body), which takes longer than a regular dialog.
-    // 2000ms ensures the video element is available when startCamera runs.
     const timer = setTimeout(() => {
       if (mountedRef.current) {
         startCamera();
       }
-    }, 2000);
+    }, 100);
 
     return () => {
       clearTimeout(timer);

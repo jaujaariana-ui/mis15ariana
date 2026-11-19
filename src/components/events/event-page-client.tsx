@@ -7,7 +7,6 @@ import { useGallery } from '@/hooks/use-gallery';
 import { useGuestSession } from '@/hooks/use-guest-session';
 import { useUpload } from '@/hooks/use-upload';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { FullscreenDialog, FullscreenDialogContent } from '@/components/ui/fullscreen-dialog';
 import { CameraCapture } from '@/components/camera/camera-capture';
 import { FileSelector } from '@/components/upload/file-selector';
 import { UploadProgress } from '@/components/upload/upload-progress';
@@ -181,15 +180,15 @@ export default function EventPageClient({ event }: Props) {
                 <span className="hidden sm:inline">Tomar foto</span>
                 <span className="sm:hidden">Cámara</span>
               </button>
-              <FullscreenDialog open={cameraOpen} onOpenChange={setCameraOpen}>
-                <FullscreenDialogContent>
+              {cameraOpen && (
+                <div className="fixed inset-0 z-50 bg-black" style={{ touchAction: 'auto' }}>
                   <CameraCapture
                     key={cameraKey}
                     onCapture={handleCameraCapture}
                     onCancel={handleCameraCancel}
                   />
-                </FullscreenDialogContent>
-              </FullscreenDialog>
+                </div>
+              )}
 
               <button
                 className="premium-btn-secondary flex-1 flex items-center justify-center gap-2 py-3 text-sm"
