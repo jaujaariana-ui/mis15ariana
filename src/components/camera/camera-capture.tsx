@@ -139,19 +139,19 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Stop any existing stream
     stopCamera();
 
-    // Timeout de seguridad: si getUserMedia no responde en 5 segundos, mostrar error
+    // Timeout de seguridad: si getUserMedia no responde en 3 segundos, mostrar error
     let getUserMediaTimedOut = false;
     const getUserMediaTimeout = setTimeout(() => {
       getUserMediaTimedOut = true;
-      console.error('[Camera] TIMEOUT: getUserMedia no respondió en 5 segundos');
+      console.error('[Camera] TIMEOUT: getUserMedia no respondió en 3 segundos');
       if (isMountedRef.current) {
         setCameraError({
           type: 'unknown',
-          message: 'La cámara no responde. Esto es común en apps instaladas. Puedes seleccionar una fotografía desde tu galería.',
+          message: 'La cámara no funciona en esta app instalada. La forma más rápida es seleccionar una fotografía desde tu galería.',
         });
         setLoading(false);
       }
-    }, 5000);
+    }, 3000);
 
     try {
       console.log('[Camera] Solicitando acceso a la cámara con facingMode:', currentMode);
@@ -181,8 +181,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           },
           audio: false,
         }),
-        5000,
-        'getUserMedia no respondió en 5 segundos'
+        3000,
+        'getUserMedia no respondió en 3 segundos'
       );
 
       console.log('[Camera] ¡Stream obtenido exitosamente! Tracks:', stream.getTracks().length);
@@ -255,17 +255,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         }
       }
 
-      // Set a timeout: if video doesn't become ready in 8 seconds, show error
+      // Set a timeout: if video doesn't become ready in 3 seconds, show error
       timeoutRef.current = setTimeout(() => {
         if (isMountedRef.current && !videoReady) {
-          console.warn('Timeout: cámara no mostró video después de 8 segundos');
+          console.warn('Timeout: cámara no mostró video después de 3 segundos');
           setCameraError({
             type: 'unknown',
-            message: 'La cámara tardó demasiado en iniciar. Intenta de nuevo o selecciona una fotografía desde tu galería.',
+            message: 'La cámara no funciona en esta app instalada. La forma más rápida es seleccionar una fotografía desde tu galería.',
           });
           setLoading(false);
         }
-      }, 8000);
+      }, 3000);
 
       if (isMountedRef.current) {
         setLoading(false);
@@ -576,18 +576,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           return (
             <>
               <button
-                onClick={() => startCamera()}
-                className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors mb-3 w-full"
+                onClick={handleCancel}
+                className="bg-white/30 hover:bg-white/40 active:bg-white/50 text-white font-semibold text-base px-6 py-4 rounded-xl transition-colors mb-3 w-full shadow-lg"
                 type="button"
               >
-                🔄 Reintentar
+                📷 Elegir fotografía desde la galería
               </button>
               <button
-                onClick={handleCancel}
-                className="bg-white/10 hover:bg-white/20 text-white/80 font-medium px-6 py-3 rounded-xl transition-colors w-full"
+                onClick={() => startCamera()}
+                className="bg-white/10 hover:bg-white/20 text-white/70 font-medium px-6 py-3 rounded-xl transition-colors w-full"
                 type="button"
               >
-                Elegir fotografía
+                🔄 Reintentar cámara
               </button>
             </>
           );
@@ -616,7 +616,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
             <div className="text-center px-6">
               <div className="w-12 h-12 border-4 border-white/20 border-t-white/80 rounded-full animate-spin mx-auto mb-4" />
               <div className="text-white text-base font-medium mb-2">Preparando cámara...</div>
-              <div className="text-white/60 text-sm mb-6">Esto puede tardar unos segundos</div>
+              <div className="text-white/60 text-sm mb-6">Si la cámara no funciona, usa la galería</div>
               <button
                 onClick={handleCancel}
                 className="bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
