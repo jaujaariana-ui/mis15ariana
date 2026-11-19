@@ -164,19 +164,19 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Stop any existing stream
     stopCamera();
 
-    // Timeout de seguridad: si getUserMedia no responde en 3 segundos, mostrar error
+    // Timeout de seguridad: si getUserMedia no responde en 8 segundos, mostrar error
     let getUserMediaTimedOut = false;
     const getUserMediaTimeout = setTimeout(() => {
       getUserMediaTimedOut = true;
-      console.error('[Camera] TIMEOUT: getUserMedia no respondió en 3 segundos');
+      console.error('[Camera] TIMEOUT: getUserMedia no respondió en 8 segundos');
       if (isMountedRef.current) {
         setCameraError({
           type: 'unknown',
-          message: 'La cámara no funciona en esta app instalada. La forma más rápida es seleccionar una fotografía desde tu galería.',
+          message: 'La cámara no responde. Puedes seleccionar una fotografía desde tu galería como alternativa.',
         });
         setLoading(false);
       }
-    }, 3000);
+    }, 8000);
 
     try {
       console.log('[Camera] Solicitando acceso a la cámara con facingMode:', currentMode);
@@ -197,17 +197,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
 
       console.log('[Camera] Llamando a getUserMedia...');
+      // Use simpler constraints for better Android PWA compatibility
+      // Avoid specifying width/height which can cause issues on some devices
       const stream = await withTimeout(
         navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: currentMode,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
           },
           audio: false,
         }),
-        3000,
-        'getUserMedia no respondió en 3 segundos'
+        8000,
+        'getUserMedia no respondió en 8 segundos'
       );
 
       console.log('[Camera] ¡Stream obtenido exitosamente! Tracks:', stream.getTracks().length);
@@ -280,17 +280,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         }
       }
 
-      // Set a timeout: if video doesn't become ready in 3 seconds, show error
+      // Set a timeout: if video doesn't become ready in 5 seconds, show error
       timeoutRef.current = setTimeout(() => {
         if (isMountedRef.current && !videoReady) {
-          console.warn('Timeout: cámara no mostró video después de 3 segundos');
+          console.warn('Timeout: cámara no mostró video después de 5 segundos');
           setCameraError({
             type: 'unknown',
-            message: 'La cámara no funciona en esta app instalada. La forma más rápida es seleccionar una fotografía desde tu galería.',
+            message: 'La cámara no muestra imagen. Intenta de nuevo o selecciona una fotografía desde tu galería.',
           });
           setLoading(false);
         }
-      }, 3000);
+      }, 5000);
 
       if (isMountedRef.current) {
         setLoading(false);
@@ -316,18 +316,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     isMountedRef.current = true;
     setOrientation(getOrientation());
 
-    // CRITICAL: If running as installed PWA, skip camera entirely
-    // getUserMedia hangs indefinitely in installed PWAs on Android
+    // Warn if running as installed PWA but still try the camera
     if (isInstalledPWA()) {
-      console.warn('[Camera] App instalada (PWA) detectada - la cámara no funciona de manera confiable');
-      setCameraError({
-        type: 'not_supported',
-        message: 'En esta app instalada, la cámara no funciona correctamente. La forma más rápida es seleccionar una fotografía desde tu galería.',
-      });
-      setLoading(false);
+      console.warn('[Camera] App instalada (PWA) detectada - intentando cámara de todos modos');
     }
+
     // Check if camera is supported
-    else if (!isCameraSupported()) {
+    if (!isCameraSupported()) {
       console.error('[Camera] Cámara NO soportada en este navegador');
       setCameraError({
         type: 'not_supported',
