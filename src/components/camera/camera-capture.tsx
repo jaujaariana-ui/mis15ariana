@@ -27,13 +27,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch (e) {
-          console.warn('Error al detener track:', e);
-        }
-      });
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -49,21 +43,14 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     stopCurrentStream();
 
     try {
-      // Add a timeout to getUserMedia to prevent hanging indefinitely
-      // If the camera doesn't respond in 5 seconds, show an error
-      const mediaStream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: facingMode,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('La cámara no responde. Intenta de nuevo o selecciona una foto desde la galería.')), 5000)
-        ),
-      ]);
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
 
       streamRef.current = mediaStream;
       
@@ -164,21 +151,16 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
-    // Stop the current stream and wait a bit before switching
     stopCurrentStream();
-    // Small delay to ensure the camera hardware is released before switching
-    setTimeout(() => {
-      setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-    }, 200);
+    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
   }, [previewUrl, stopCurrentStream]);
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    // Increased delay to ensure the previous camera hardware is fully released
-    // Android needs more time to switch between front and rear cameras
+    // Small delay to ensure the previous stream is fully stopped before starting new one
     const timer = setTimeout(() => {
       startCamera();
-    }, 500);
+    }, 300);
     return () => clearTimeout(timer);
   }, [facingMode, startCamera]);
 
