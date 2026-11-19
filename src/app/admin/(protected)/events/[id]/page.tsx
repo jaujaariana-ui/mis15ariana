@@ -8,6 +8,7 @@ import { formatRelativeTime } from '@/utils/date-formatter';
 import PhotoManager from '@/components/admin/photo-manager';
 import GuestManager from '@/components/admin/guest-manager';
 import QRGenerator from '@/components/events/qr-generator';
+import { DeleteEventDialog } from '@/components/admin/delete-event-dialog';
 
 const statusLabel: Record<string, string> = {
   draft: 'Borrador',
@@ -103,6 +104,7 @@ export default async function AdminEventDetail({ params }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">📷 {photoCount || 0} fotos</span>
           <span className="text-sm text-gray-500">👤 {guestCount || 0} invitados</span>
+          <DeleteEventDialog eventId={event.id} eventName={event.name} />
         </div>
       </div>
 

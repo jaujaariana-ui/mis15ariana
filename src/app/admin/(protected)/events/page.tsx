@@ -2,23 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { Card, CardContent } from '@/components/ui/card';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { EventSlugLink } from '@/components/events/event-slug-link';
-
-const statusLabel: Record<string, string> = {
-  draft: 'Borrador',
-  active: 'Activo',
-  closed: 'Cerrado',
-  expired: 'Expirado',
-};
-
-const statusBadgeVariant = (status: string) => {
-  switch (status) {
-    case 'active': return 'default';
-    default: return 'secondary';
-  }
-};
+import { EventCard } from '@/components/admin/event-card';
 
 export default async function AdminEvents() {
   const supabase = await createClient();
@@ -92,37 +77,12 @@ export default async function AdminEvents() {
           {events.map((event) => {
             const stats = getStats(event.id);
             return (
-              <Link key={event.id} href={`/admin/events/${event.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-gray-900">{event.name}</h3>
-                          <Badge variant={statusBadgeVariant(event.status)}>
-                            {statusLabel[event.status] || event.status}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-gray-500 mt-1">
-                          <EventSlugLink
-                            href={`/e/${event.slug}`}
-                            className="hover:underline"
-                          >
-                            /e/{event.slug}
-                          </EventSlugLink>
-                        </p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                          <span>📷 {stats?.photoCount || 0} fotos</span>
-                          <span>👤 {stats?.guestCount || 0} invitados</span>
-                          {event.event_date && <span>📅 {event.event_date}</span>}
-                          <span>Creado {new Date(event.created_at).toLocaleDateString('es-ES')}</span>
-                        </div>
-                      </div>
-                      <span className="text-gray-400 text-lg">→</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <EventCard
+                key={event.id}
+                event={event}
+                photoCount={stats?.photoCount || 0}
+                guestCount={stats?.guestCount || 0}
+              />
             );
           })}
         </div>

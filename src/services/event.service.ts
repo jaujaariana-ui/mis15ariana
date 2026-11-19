@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Event, CreateEventInput, UpdateEventInput } from '@/types/event.types';
 import { generateSlug, generateUniqueSlug } from '@/utils/slug-generator';
+import { deletePhotoFromCloudinary } from '@/lib/cloudinary/upload';
 
 export async function createEvent(
   supabase: SupabaseClient,
@@ -107,4 +108,38 @@ export async function getEventStats(
     photoCount: photoCount || 0,
     guestCount: guestCount || 0,
   };
+}
+
+export async function deleteEvent(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<void> {
+  // First, get all photos for this event to delete them from Cloudinary
+  const { data: photos } = await supabase
+    .from('photos')
+    .select('storage_key')
+    .eq('event_id', eventId);
+
+  // Delete photos from Cloudinary (in parallel, ignore errors for missing files)
+  if (photos && photos.length > 0) {
+    await Promise.all(
+      photos.map((photo) =>
+        deletePhotoFromCloudinary(photo.storage_key).catch((err) => {
+          console.warn(`Failed to delete photo from Cloudinary: ${photo.storage_key}`, err);
+        })
+      )
+    );
+  }
+
+  // Delete the event — cascading deletes handle:
+  // - photos (ON DELETE CASCADE)
+  // - guest_profiles (ON DELETE CASCADE)
+  // - event_admins (ON DELETE CASCADE)
+  // - rate_limits (ON DELETE CASCADE)
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('id', eventId);
+
+  if (error) throw error;
 }
