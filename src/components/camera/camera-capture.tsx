@@ -243,6 +243,21 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-white/60 text-sm">Iniciando cámara...</div>
           </div>
+        ) : error ? (
+          <div className="absolute inset-0 flex items-center justify-center px-6">
+            <div className="text-center max-w-sm">
+              <div className="text-6xl mb-4">📷</div>
+              <h3 className="text-white text-xl font-semibold mb-3">No se pudo acceder a la cámara</h3>
+              <p className="text-white/70 text-sm mb-6 leading-relaxed">{error}</p>
+              <button
+                onClick={handleCancel}
+                className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors mb-3 w-full"
+                type="button"
+              >
+                ← Volver y seleccionar fotos
+              </button>
+            </div>
+          </div>
         ) : previewUrl ? (
           <img
             src={previewUrl}
@@ -287,7 +302,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       </div>
 
       {/* UI Overlay - buttons stay fixed regardless of orientation */}
-      {!previewUrl && (
+      {!previewUrl && !error && (
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 55 }}>
           {/* Cancel button at top left */}
           {!loading && (
