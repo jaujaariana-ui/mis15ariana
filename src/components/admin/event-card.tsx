@@ -36,11 +36,11 @@ const statusBadgeVariant = (status: string) => {
 export function EventCard({ event, photoCount, guestCount }: EventCardProps) {
   return (
     <div className="group">
-      <Link href={`/admin/events/${event.id}`}>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
+      <Card className="hover:shadow-md transition-shadow">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <Link href={`/admin/events/${event.id}`} className="flex-1">
+              <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold text-gray-900">{event.name}</h3>
                   <Badge variant={statusBadgeVariant(event.status)}>
@@ -62,14 +62,14 @@ export function EventCard({ event, photoCount, guestCount }: EventCardProps) {
                   <span>Creado {new Date(event.created_at).toLocaleDateString('es-ES')}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <DeleteEventDialog eventId={event.id} eventName={event.name} />
-                <span className="text-gray-400 text-lg">→</span>
-              </div>
+            </Link>
+            <div className="flex items-center gap-2">
+              <DeleteEventDialog eventId={event.id} eventName={event.name} />
+              <span className="text-gray-400 text-lg">→</span>
             </div>
-          </CardContent>
-        </Card>
-      </Link>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
