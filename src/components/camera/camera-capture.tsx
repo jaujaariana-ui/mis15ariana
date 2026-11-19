@@ -161,10 +161,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Set initial orientation
     setOrientation(getOrientation());
 
-    // Start camera immediately on mount
-    startCamera();
+    // Small delay to allow the dialog and video element to be fully mounted in the DOM
+    // before requesting camera access. Without this delay, videoRef.current may be null
+    // when the stream is acquired, resulting in a black screen.
+    const timer = setTimeout(() => {
+      startCamera();
+    }, 300);
 
     return () => {
+      clearTimeout(timer);
       stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
