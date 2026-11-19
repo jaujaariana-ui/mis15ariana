@@ -8,9 +8,6 @@ interface CameraCaptureProps {
   onCancel: () => void;
 }
 
-// Global lock to prevent multiple camera instances across the entire app
-let cameraInstanceActive = false;
-
 function getOrientation(): 'portrait' | 'landscape' {
   if (typeof window === 'undefined') return 'portrait';
   return screen.orientation.type.includes('portrait') ? 'portrait' : 'landscape';
@@ -27,7 +24,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [blocked, setBlocked] = useState(false);
 
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
@@ -39,163 +35,81 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
   }, []);
 
-  // Check if another camera instance is already active
-  useEffect(() => {
-    if (cameraInstanceActive) {
-      // Another instance is already using the camera — close this one immediately
-      console.warn('Ya hay una instancia de cámara activa. Cerrando esta instancia duplicada.');
-      setBlocked(true);
-      stopCurrentStream();
-      onCancel();
-      return;
-    }
-
-    // Claim the camera lock for this instance
-    cameraInstanceActive = true;
-
-    // Release the lock when this component unmounts
-    return () => {
-      cameraInstanceActive = false;
-    };
-  }, [onCancel, stopCurrentStream]);
-
-  const startCamera = useCallback(async (maxRetries: number = 3) => {
+  const startCamera = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     // Stop any existing stream first
     stopCurrentStream();
 
-    // Try to enumerate and stop all video tracks that might be held by this page
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      console.log('Video devices found:', videoDevices.length);
-    } catch (e) {
-      console.warn('Could not enumerate devices:', e);
-    }
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
 
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      if (attempt > 0) {
-        // Exponential backoff: 1s, 2s, 4s...
-        const backoff = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-        console.log(`Reintentando acceso a cámara (intento ${attempt + 1}/${maxRetries})...`);
-        setError(`La cámara está ocupada. Reintentando en ${backoff / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, backoff));
+      streamRef.current = mediaStream;
+      
+      // Wait for the video element to be ready and play
+      // iOS Safari requires multiple attempts and a delay after setting srcObject
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
         
-        // Try to stop any lingering tracks before retry
-        stopCurrentStream();
-      }
-
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: facingMode,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
-
-        streamRef.current = mediaStream;
-        
-        // Wait for the video element to be ready and play
-        // iOS Safari requires multiple attempts and a delay after setting srcObject
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          
-          // Try to play with multiple retries for iOS compatibility
-          let played = false;
-          for (let playAttempt = 0; playAttempt < 5 && !played; playAttempt++) {
-            if (playAttempt > 0) {
-              await new Promise(resolve => setTimeout(resolve, 200 * playAttempt));
-            }
-            try {
-              await videoRef.current.play();
-              played = true;
-            } catch (playErr) {
-              // Retry on play failure
-              if (playAttempt === 4) {
-                console.warn('Failed to play video after 5 attempts:', playErr);
-              }
-            }
+        // Try to play with multiple retries for iOS compatibility
+        let played = false;
+        for (let attempt = 0; attempt < 5 && !played; attempt++) {
+          if (attempt > 0) {
+            await new Promise(resolve => setTimeout(resolve, 200 * attempt));
           }
-          
-          // If still not playing, try loading then playing
-          if (!played && videoRef.current) {
-            try {
-              await videoRef.current.load();
-              await new Promise(resolve => setTimeout(resolve, 300));
-              await videoRef.current!.play();
-            } catch (e) {
-              console.warn('Final play attempt failed:', e);
+          try {
+            await videoRef.current.play();
+            played = true;
+          } catch (playErr) {
+            // Retry on play failure
+            if (attempt === 4) {
+              console.warn('Failed to play video after 5 attempts:', playErr);
             }
           }
         }
         
-        // Success! Break out of retry loop
-        lastError = null;
-        break;
-      } catch (err) {
-        lastError = err;
-        
-        // Check if this is a "camera in use" error worth retrying
-        const isCameraInUse = err instanceof DOMException && err.name === 'NotReadableError';
-        const isConcurrentModification = err instanceof DOMException && err.name === 'ConcurrentModificationError';
-        
-        if (!isCameraInUse && !isConcurrentModification) {
-          // Other errors (permission denied, no camera) shouldn't be retried
-          break;
-        }
-        
-        console.warn(`Cámara ocupada (intento ${attempt + 1}/${maxRetries}):`, err);
-        
-        // Clean up the failed stream attempt
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
+        // If still not playing, try loading then playing
+        if (!played && videoRef.current) {
+          try {
+            await videoRef.current.load();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            await videoRef.current!.play();
+          } catch (e) {
+            console.warn('Final play attempt failed:', e);
+          }
         }
       }
-    }
-
-    // If all retries failed, show appropriate error message
-    if (lastError) {
+    } catch (err) {
       const message =
-        lastError instanceof DOMException && lastError.name === 'NotAllowedError'
+        err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Permiso de cámara denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.'
-          : lastError instanceof DOMException && lastError.name === 'NotFoundError'
+          : err instanceof DOMException && err.name === 'NotFoundError'
           ? 'No se encontró cámara en este dispositivo. Intenta seleccionar fotos desde la galería.'
-          : lastError instanceof DOMException && lastError.name === 'NotReadableError'
-          ? 'La cámara está siendo usada por otra aplicación. Por favor, cierra otras apps que usen la cámara (Zoom, Teams, WhatsApp, cámara del sistema) e intenta de nuevo.'
-          : lastError instanceof DOMException && lastError.name === 'ConcurrentModificationError'
-          ? 'La cámara está siendo usada por otra pestaña o aplicación. Cierra las otras pestañas que usen la cámara e intenta de nuevo.'
+          : err instanceof DOMException && err.name === 'NotReadableError'
+          ? 'La cámara está siendo usada por otra aplicación. Cierra la otra app e intenta de nuevo.'
           : 'No se pudo acceder a la cámara. Intenta seleccionar fotos desde la galería.';
       setError(message);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [facingMode, stopCurrentStream]);
-
-  // If blocked by another instance, don't start camera
-  if (blocked) {
-    return null;
-  }
 
   // Initialize camera when component mounts
   useEffect(() => {
     // Set initial orientation
     setOrientation(getOrientation());
-
-    // Small delay to allow the browser to fully release the camera hardware
-    // from a previous instance before attempting to acquire it again
-    const timer = setTimeout(() => {
-      startCamera();
-    }, 300);
-
+    
+    startCamera();
+    
     return () => {
-      clearTimeout(timer);
       stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -237,41 +151,16 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
-
-    // Fully stop and clean up the current stream before switching
-    // This is critical: we must wait for tracks to actually stop before requesting a new one
-    if (streamRef.current) {
-      const tracks = streamRef.current.getTracks();
-      tracks.forEach((track) => {
-        try {
-          track.stop();
-        } catch (e) {
-          console.warn('Error al detener track:', e);
-        }
-      });
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    // Brief loading state to give visual feedback during switch
-    setLoading(true);
-
-    // Switch facing mode after cleanup
+    stopCurrentStream();
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-  }, [previewUrl]);
+  }, [previewUrl, stopCurrentStream]);
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    // Longer delay when switching cameras to ensure the browser fully releases
-    // the previous camera hardware before requesting the new one.
-    // On mobile devices, switching between front/back cameras requires more time
-    // than initial startup because the OS must release one physical camera and
-    // acquire another.
+    // Small delay to ensure the previous stream is fully stopped before starting new one
     const timer = setTimeout(() => {
       startCamera();
-    }, 800);
+    }, 300);
     return () => clearTimeout(timer);
   }, [facingMode, startCamera]);
 
@@ -515,16 +404,9 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       )}
 
       {/* Error message */}
-      {error && !loading && (
+      {error && (
         <div className="absolute top-20 left-4 right-4 mx-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center" style={{ zIndex: 60 }}>
-          <p className="mb-2">{error}</p>
-          <button
-            onClick={() => startCamera(3)}
-            className="bg-red-500/40 hover:bg-red-500/60 text-white text-sm px-4 py-2 rounded-md transition-colors"
-            type="button"
-          >
-            🔄 Reintentar
-          </button>
+          {error}
         </div>
       )}
     </div>
