@@ -39,13 +39,34 @@ export const viewport: Viewport = {
   themeColor: '#7c3aed',
 };
 
-// Register Service Worker for PWA installation
+// Register Service Worker for PWA installation with auto-update
 function ServiceWorkerRegister() {
   return (
     <script dangerouslySetInnerHTML={{ __html: `
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+          navigator.serviceWorker.register('/sw.js').then(function(registration) {
+            console.log('Service Worker registrado:', registration.scope);
+            
+            // Check for updates every 60 seconds
+            setInterval(function() {
+              registration.update();
+            }, 60000);
+            
+            // Listen for updated Service Worker
+            registration.addEventListener('updatefound', function() {
+              var newWorker = registration.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', function() {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    // New Service Worker available, reload page to get fresh code
+                    console.log('Nueva versión disponible, recargando...');
+                    window.location.reload();
+                  }
+                });
+              }
+            });
+          }).catch(function(err) {
             console.log('Service Worker registration failed:', err);
           });
         });
