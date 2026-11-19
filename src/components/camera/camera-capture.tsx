@@ -128,15 +128,10 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     stopCamera();
 
     try {
-      // Check permissions first - critical for PWA
-      const permissionStatus = await navigator.permissions.query({
-        name: 'camera' as PermissionName,
-      }).catch(() => null);
-
-      if (permissionStatus && permissionStatus.state === 'denied') {
-        throw new DOMException('Permiso de cámara denegado', 'NotAllowedError');
-      }
-
+      // Directly request camera access - permissions.query is not reliable on Android PWA
+      // The browser will show the permission prompt automatically
+      console.log('Solicitando acceso a la cámara con facingMode:', currentMode);
+      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: currentMode,
@@ -224,6 +219,10 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       if (!isMountedRef.current) return;
 
       console.error('Error al acceder a la cámara:', err);
+      console.error('Tipo de error:', err instanceof Error ? err.constructor.name : typeof err);
+      console.error('Nombre del error:', err instanceof DOMException ? err.name : 'N/A');
+      console.error('Mensaje del error:', err instanceof Error ? err.message : String(err));
+      
       const classifiedError = classifyCameraError(err);
       setCameraError(classifiedError);
       setLoading(false);
@@ -469,6 +468,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
     };
 
+    // Show technical details for debugging
+    const getDebugInfo = () => {
+      if (type !== 'unknown') return null;
+      return (
+        <div className="mt-4 p-3 bg-black/30 rounded-lg">
+          <p className="text-white/50 text-xs font-mono break-all">
+            {message}
+          </p>
+        </div>
+      );
+    };
+
     // Buttons based on error type
     const renderButtons = () => {
       switch (type) {
@@ -530,6 +541,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           <div className="text-6xl mb-4">{getErrorIcon()}</div>
           <h3 className="text-white text-xl font-semibold mb-3">{getErrorTitle()}</h3>
           <p className="text-white/70 text-sm mb-6 leading-relaxed">{message}</p>
+          {getDebugInfo()}
           {renderButtons()}
         </div>
       </div>
