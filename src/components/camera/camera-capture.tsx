@@ -59,9 +59,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     };
   }, [onCancel, stopCurrentStream]);
 
-  const startCamera = useCallback(async (maxRetries: number = 3) => {
+  const startCamera = useCallback(async (maxRetries: number = 3, facingModeOverride?: 'user' | 'environment') => {
     setLoading(true);
     setError(null);
+
+    const currentFacingMode = facingModeOverride || facingMode;
 
     // Stop any existing stream first
     stopCurrentStream();
@@ -92,7 +94,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: facingMode,
+            facingMode: currentFacingMode,
             width: { ideal: 1920 },
             height: { ideal: 1080 },
           },
@@ -231,12 +233,16 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     };
   }, [previewUrl]);
 
-  const switchCamera = useCallback(() => {
+  const switchCamera = useCallback(async () => {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
+
+    // Determine the new facing mode before starting the switch
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newFacingMode);
 
     // Fully stop and clean up the current stream before switching
     // This is critical: we must wait for tracks to actually stop before requesting a new one
@@ -258,22 +264,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // Brief loading state to give visual feedback during switch
     setLoading(true);
 
-    // Switch facing mode after cleanup
-    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-  }, [previewUrl]);
+    // Wait longer for the browser to fully release the previous camera hardware
+    // before requesting the new one. On mobile devices, switching between front/back
+    // cameras requires more time because the OS must release one physical camera
+    // and acquire another. 1500ms is needed to avoid NotReadableError.
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
-  // Restart camera when facing mode changes
-  useEffect(() => {
-    // Longer delay when switching cameras to ensure the browser fully releases
-    // the previous camera hardware before requesting the new one.
-    // On mobile devices, switching between front/back cameras requires more time
-    // than initial startup because the OS must release one physical camera and
-    // acquire another.
-    const timer = setTimeout(() => {
-      startCamera();
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [facingMode, startCamera]);
+    // Now start the new camera with the new facing mode directly
+    startCamera(3, newFacingMode);
+  }, [previewUrl, facingMode, startCamera]);
 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
