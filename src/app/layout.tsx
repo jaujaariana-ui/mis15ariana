@@ -39,11 +39,27 @@ export const viewport: Viewport = {
   themeColor: '#7c3aed',
 };
 
+// Register Service Worker for PWA installation
+function ServiceWorkerRegister() {
+  return (
+    <script dangerouslySetInnerHTML={{ __html: `
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.log('Service Worker registration failed:', err);
+          });
+        });
+      }
+    ` }} />
+  );
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={`${inter.variable} ${playfair.variable} antialiased`}>
       <body className="min-h-screen bg-gray-50 font-sans text-gray-900">
         {children}
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
