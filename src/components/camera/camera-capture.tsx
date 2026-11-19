@@ -94,6 +94,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [videoReady, setVideoReady] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stop current camera stream
   const stopCamera = useCallback(() => {
@@ -109,16 +111,32 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   // Start camera with the given facing mode
   const startCamera = useCallback(async (mode?: 'user' | 'environment') => {
     if (!isMountedRef.current) return;
-    
+
     setLoading(true);
     setCameraError(null);
-    
+    setVideoReady(false);
+
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
     const currentMode = mode || facingMode;
-    
+
     // Stop any existing stream
     stopCamera();
-    
+
     try {
+      // Check permissions first - critical for PWA
+      const permissionStatus = await navigator.permissions.query({
+        name: 'camera' as PermissionName,
+      }).catch(() => null);
+
+      if (permissionStatus && permissionStatus.state === 'denied') {
+        throw new DOMException('Permiso de cámara denegado', 'NotAllowedError');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: currentMode,
@@ -127,37 +145,96 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         },
         audio: false,
       });
-      
+
       if (!isMountedRef.current) {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
-      
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+
+      // Verify stream has active video tracks
+      const videoTracks = stream.getVideoTracks();
+      if (videoTracks.length === 0) {
+        throw new Error('No se obtuvo un track de video del stream');
       }
-      
+
+      // Verify the track is actually active and ready
+      const track = videoTracks[0];
+      if (!track.readyState || track.readyState === 'ended') {
+        throw new Error('El track de video no está activo');
+      }
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        const video = videoRef.current;
+        video.srcObject = stream;
+
+        // Force video to load and play - critical for PWA on Android
+        video.load();
+
+        // Try to play with error handling
+        try {
+          await video.play();
+        } catch (playError) {
+          console.error('Error al reproducir video:', playError);
+          // If play fails, try again after a short delay
+          await new Promise(resolve => setTimeout(resolve, 100));
+          try {
+            await video.play();
+          } catch (secondError) {
+            console.error('Segundo intento de reproducir video falló:', secondError);
+            throw new Error('No se pudo reproducir el video de la cámara');
+          }
+        }
+
+        // Additional check: ensure video dimensions are set
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          console.warn('Advertencia: dimensiones de video son 0, esperando...');
+          // Wait for metadata to load
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error('Timeout esperando metadata del video'));
+            }, 3000);
+            const onLoaded = () => {
+              clearTimeout(timeout);
+              video.removeEventListener('loadedmetadata', onLoaded);
+              resolve();
+            };
+            video.addEventListener('loadedmetadata', onLoaded, { once: true });
+          });
+        }
+      }
+
+      // Set a timeout: if video doesn't become ready in 8 seconds, show error
+      timeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current && !videoReady) {
+          console.warn('Timeout: cámara no mostró video después de 8 segundos');
+          setCameraError({
+            type: 'unknown',
+            message: 'La cámara tardó demasiado en iniciar. Intenta de nuevo o selecciona una fotografía desde tu galería.',
+          });
+          setLoading(false);
+        }
+      }, 8000);
+
       if (isMountedRef.current) {
         setLoading(false);
       }
     } catch (err) {
       if (!isMountedRef.current) return;
-      
+
       console.error('Error al acceder a la cámara:', err);
       const classifiedError = classifyCameraError(err);
       setCameraError(classifiedError);
       setLoading(false);
     }
-  }, [facingMode, stopCamera]);
+  }, [facingMode, stopCamera, videoReady]);
 
   // Initialize camera on mount
   useEffect(() => {
     isMountedRef.current = true;
     setOrientation(getOrientation());
-    
+
     // Check if camera is supported
     if (!isCameraSupported()) {
       setCameraError({
@@ -168,9 +245,33 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     } else {
       startCamera();
     }
-    
+
+    // Handle visibility changes - critical for PWA on Android
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && isMountedRef.current && !previewUrl) {
+        // App came back to foreground - check if camera stream is still active
+        const stream = streamRef.current;
+        const videoTrack = stream?.getVideoTracks()[0];
+
+        // If stream exists but track is stopped or muted, restart camera
+        if (!videoTrack || !videoTrack.readyState || videoTrack.readyState === 'ended' || videoTrack.muted) {
+          console.log('Cámara reiniciada al volver a la app');
+          setCameraError(null);
+          setVideoReady(false);
+          await startCamera();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       isMountedRef.current = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       stopCamera();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -209,6 +310,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
+    setVideoReady(false);
 
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacingMode);
@@ -287,6 +389,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
+    setVideoReady(false);
     startCamera();
   }, [previewUrl, startCamera]);
 
@@ -466,6 +569,30 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
                   videoRef.current.play().catch(() => {});
                 }
               }}
+              onCanPlay={() => {
+                console.log('Video canplay - stream activo');
+              }}
+              onPlaying={() => {
+                console.log('Video playing - mostrando frames');
+                setVideoReady(true);
+                if (timeoutRef.current) {
+                  clearTimeout(timeoutRef.current);
+                  timeoutRef.current = null;
+                }
+              }}
+              onWaiting={() => {
+                console.log('Video waiting - buffering');
+              }}
+              onError={(e) => {
+                console.error('Video error:', e);
+                if (isMountedRef.current && !cameraError) {
+                  setCameraError({
+                    type: 'unknown',
+                    message: 'El video de la cámara no puede reproducirse. Intenta de nuevo o selecciona una fotografía.',
+                  });
+                  setLoading(false);
+                }
+              }}
               className={`absolute inset-0 w-full h-full object-cover ${
                 facingMode === 'user' ? 'scale-x-[-1]' : ''
               }`}
@@ -492,20 +619,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       {/* UI Overlay - buttons stay fixed regardless of orientation */}
       {!previewUrl && !cameraError && (
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 55 }}>
-          {/* Cancel button at top left */}
-          {!loading && (
-            <button
-              onClick={handleCancel}
-              className="absolute top-8 left-4 pointer-events-auto text-white/80 hover:text-white active:bg-black/60 bg-black/30 hover:bg-black/50 rounded-full p-2.5 transition-colors"
-              style={{ touchAction: 'manipulation', zIndex: 60 }}
-              type="button"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          )}
+          {/* Cancel button - ALWAYS visible, even during loading */}
+          <button
+            onClick={handleCancel}
+            className="absolute top-8 left-4 pointer-events-auto text-white/80 hover:text-white active:bg-black/60 bg-black/30 hover:bg-black/50 rounded-full p-2.5 transition-colors"
+            style={{ touchAction: 'manipulation', zIndex: 60 }}
+            type="button"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
 
           {/* Side controls - right side, vertically stacked like native camera */}
           {!loading && (
