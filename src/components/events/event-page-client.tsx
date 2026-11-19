@@ -170,6 +170,7 @@ export default function EventPageClient({ event }: Props) {
                 type="button"
                 className="premium-btn flex-1 flex items-center justify-center gap-2 py-3 text-sm"
                 onClick={() => setCameraOpen(true)}
+                disabled={cameraOpen}
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
