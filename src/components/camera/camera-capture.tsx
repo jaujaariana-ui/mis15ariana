@@ -18,6 +18,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error al detener track:', e);
+        }
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -35,7 +43,26 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
   }, []);
 
+  // Track mounted state to avoid state updates on unmounted component
+  useEffect(() => {
+    mountedRef.current = true;
+    // Create abort controller for this instance
+    abortRef.current = new AbortController();
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+      stopCurrentStream();
+    };
+  }, [stopCurrentStream]);
+
   const startCamera = useCallback(async (maxRetries: number = 3, facingModeOverride?: 'user' | 'environment') => {
+    const currentAbort = abortRef.current;
+    
+    if (!mountedRef.current) {
+      console.warn('startCamera llamado en componente desmontado, ignorando');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
 
@@ -56,12 +83,40 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Check if we were aborted
+      if (currentAbort?.signal.aborted) {
+        console.log('startCamera abortado antes de intento');
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+        return;
+      }
+
       if (attempt > 0) {
         // Exponential backoff: 1s, 2s, 4s...
         const backoff = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
         console.log(`Reintentando acceso a cámara (intento ${attempt + 1}/${maxRetries})...`);
-        setError(`La cámara está ocupada. Reintentando en ${backoff / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, backoff));
+        if (mountedRef.current) {
+          setError(`La cámara está ocupada. Reintentando en ${backoff / 1000}s...`);
+        }
+        
+        // Wait with abort check
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, backoff);
+          currentAbort?.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        });
+        
+        // Check abort again after backoff
+        if (currentAbort?.signal.aborted) {
+          console.log('startCamera abortado después de backoff');
+          if (mountedRef.current) {
+            setLoading(false);
+          }
+          return;
+        }
         
         // Try to stop any lingering tracks before retry
         stopCurrentStream();
@@ -77,39 +132,86 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           audio: false,
         });
 
+        // Check abort after getting stream
+        if (currentAbort?.signal.aborted) {
+          mediaStream.getTracks().forEach(t => t.stop());
+          console.log('startCamera abortado después de obtener stream');
+          if (mountedRef.current) {
+            setLoading(false);
+          }
+          return;
+        }
+
+        // CRITICAL: Wait for video element to be ready
+        // The video ref might not be ready immediately after stream acquisition
+        let videoReady = false;
+        for (let vAttempt = 0; vAttempt < 10; vAttempt++) {
+          if (videoRef.current) {
+            videoReady = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (currentAbort?.signal.aborted) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            if (mountedRef.current) setLoading(false);
+            return;
+          }
+        }
+
+        if (!videoReady) {
+          mediaStream.getTracks().forEach(t => t.stop());
+          console.error('Video element no está disponible después de 1s');
+          if (mountedRef.current) {
+            setError('No se pudo inicializar la vista previa de la cámara.');
+            setLoading(false);
+          }
+          return;
+        }
+
         streamRef.current = mediaStream;
         
         // Wait for the video element to be ready and play
         // iOS Safari requires multiple attempts and a delay after setting srcObject
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
-          
-          // Try to play with multiple retries for iOS compatibility
-          let played = false;
-          for (let playAttempt = 0; playAttempt < 5 && !played; playAttempt++) {
-            if (playAttempt > 0) {
-              await new Promise(resolve => setTimeout(resolve, 200 * playAttempt));
-            }
-            try {
-              await videoRef.current.play();
-              played = true;
-            } catch (playErr) {
-              // Retry on play failure
-              if (playAttempt === 4) {
-                console.warn('Failed to play video after 5 attempts:', playErr);
-              }
-            }
+        }
+        
+        // Try to play with multiple retries for iOS compatibility
+        let played = false;
+        for (let playAttempt = 0; playAttempt < 5 && !played; playAttempt++) {
+          if (currentAbort?.signal.aborted) {
+            console.log('startCamera abortado durante play');
+            if (mountedRef.current) setLoading(false);
+            return;
           }
           
-          // If still not playing, try loading then playing
-          if (!played && videoRef.current) {
-            try {
-              await videoRef.current.load();
-              await new Promise(resolve => setTimeout(resolve, 300));
-              await videoRef.current!.play();
-            } catch (e) {
-              console.warn('Final play attempt failed:', e);
+          if (playAttempt > 0) {
+            await new Promise(resolve => setTimeout(resolve, 200 * playAttempt));
+          }
+          try {
+            if (videoRef.current) {
+              await videoRef.current.play();
+              played = true;
             }
+          } catch (playErr) {
+            // Retry on play failure
+            if (playAttempt === 4) {
+              console.warn('Failed to play video after 5 attempts:', playErr);
+            }
+          }
+        }
+        
+        // If still not playing, try loading then playing
+        if (!played && videoRef.current) {
+          try {
+            await videoRef.current.load();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (videoRef.current && !currentAbort?.signal.aborted) {
+              await videoRef.current.play();
+              played = true;
+            }
+          } catch (e) {
+            console.warn('Final play attempt failed:', e);
           }
         }
         
@@ -132,11 +234,16 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         
         // Clean up the failed stream attempt
         if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) {}
+          });
           streamRef.current = null;
         }
       }
     }
+
+    // Only update state if still mounted
+    if (!mountedRef.current) return;
 
     // If all retries failed, show appropriate error message
     if (lastError) {
@@ -165,12 +272,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     // before requesting camera access. Without this delay, videoRef.current may be null
     // when the stream is acquired, resulting in a black screen.
     const timer = setTimeout(() => {
-      startCamera();
-    }, 300);
+      if (mountedRef.current) {
+        startCamera();
+      }
+    }, 500);
 
     return () => {
       clearTimeout(timer);
-      stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
