@@ -1,5 +1,5 @@
 // IMPORTANT: Increment version number to force cache invalidation for installed PWAs
-const CACHE_NAME = 'xalt-moments-v2';
+const CACHE_NAME = 'xalt-moments-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
