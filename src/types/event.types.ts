@@ -34,6 +34,7 @@ export interface UpdateEventInput {
   name?: string;
   description?: string;
   event_date?: string;
+  cover_image?: string | null;
   status?: 'draft' | 'active' | 'closed' | 'expired';
   max_photos_per_guest?: number;
   max_file_size_mb?: number;

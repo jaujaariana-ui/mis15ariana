@@ -9,6 +9,7 @@ import PhotoManager from '@/components/admin/photo-manager';
 import GuestManager from '@/components/admin/guest-manager';
 import QRGenerator from '@/components/events/qr-generator';
 import { DeleteEventDialog } from '@/components/admin/delete-event-dialog';
+import CoverImageManager from '@/components/admin/cover-image-manager';
 
 const statusLabel: Record<string, string> = {
   draft: 'Borrador',
@@ -116,43 +117,46 @@ export default async function AdminEventDetail({ params }: Props) {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <QRGenerator
-          eventId={event.id}
-          eventSlug={event.slug}
-          eventName={event.name}
-        />
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-gray-500">Enlace del evento</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <a
-              href={`/e/${event.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm hover:underline break-all"
-            >
-              /e/{event.slug}
-            </a>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-gray-500">Estado</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <Badge variant={statusBadgeVariant(event.status)}>
-                {statusLabel[event.status] || event.status}
-              </Badge>
-              <div className="text-xs text-gray-500">
-                <p>Límite de fotos: {event.max_photos ?? 'Ilimitado'}</p>
-                <p>Tamaño máximo: {event.max_file_size_mb ?? 10} MB</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <CoverImageManager eventId={event.id} initialCoverImage={event.cover_image} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <QRGenerator
+            eventId={event.id}
+            eventSlug={event.slug}
+            eventName={event.name}
+          />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-gray-500">Enlace del evento</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <a
+                href={`/e/${event.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm hover:underline break-all"
+              >
+                /e/{event.slug}
+              </a>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-gray-500">Estado</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Badge variant={statusBadgeVariant(event.status)}>
+                  {statusLabel[event.status] || event.status}
+                </Badge>
+                <div className="text-xs text-gray-500">
+                  <p>Límite de fotos: {event.max_photos ?? 'Ilimitado'}</p>
+                  <p>Tamaño máximo: {event.max_file_size_mb ?? 10} MB</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <div className="space-y-6">
