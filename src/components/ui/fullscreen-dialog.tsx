@@ -26,7 +26,7 @@ function FullscreenDialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 isolate z-50 bg-black duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        'fixed inset-0 isolate z-40 bg-black duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
         className
       )}
       {...props}
@@ -48,9 +48,10 @@ function FullscreenDialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed inset-0 z-50 grid w-full h-full bg-black text-white gap-4 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+          'fixed inset-0 z-50 grid w-full h-full bg-transparent text-white gap-4 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
           className
         )}
+        style={{ touchAction: 'auto' }}
         {...props}
       >
         {children}

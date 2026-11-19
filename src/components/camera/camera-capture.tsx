@@ -24,7 +24,6 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const initializedRef = useRef(false);
 
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
@@ -84,11 +83,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
   }, [facingMode, stopCurrentStream]);
 
-  // Initialize camera only once when component mounts
+  // Initialize camera when component mounts
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-    
     // Set initial orientation
     setOrientation(getOrientation());
     
@@ -265,6 +261,11 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               autoPlay
               playsInline
               muted
+              onLoadedMetadata={() => {
+                if (videoRef.current) {
+                  videoRef.current.play().catch(() => {});
+                }
+              }}
               className={`absolute inset-0 w-full h-full object-cover ${
                 facingMode === 'user' ? 'scale-x-[-1]' : ''
               }`}
@@ -287,12 +288,14 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
       {/* UI Overlay - buttons stay fixed regardless of orientation */}
       {!previewUrl && (
-        <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 55 }}>
           {/* Cancel button at top left */}
           {!loading && (
             <button
               onClick={handleCancel}
-              className="absolute top-8 left-4 pointer-events-auto text-white/80 hover:text-white bg-black/30 hover:bg-black/50 rounded-full p-2.5 transition-colors"
+              className="absolute top-8 left-4 pointer-events-auto text-white/80 hover:text-white active:bg-black/60 bg-black/30 hover:bg-black/50 rounded-full p-2.5 transition-colors"
+              style={{ touchAction: 'manipulation', zIndex: 60 }}
+              type="button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -303,12 +306,14 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
           {/* Side controls - right side, vertically stacked like native camera */}
           {!loading && (
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-5 pointer-events-auto">
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-5 pointer-events-auto" style={{ zIndex: 60 }}>
               {/* Switch camera button */}
               <button
                 onClick={switchCamera}
                 disabled={!!error || loading}
-                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 active:bg-black/60 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                style={{ touchAction: 'manipulation' }}
+                type="button"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
@@ -320,7 +325,9 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               <button
                 onClick={startCountdown}
                 disabled={!!error || loading}
-                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 text-lg"
+                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 active:bg-black/60 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 text-lg"
+                style={{ touchAction: 'manipulation' }}
+                type="button"
                 title="Temporizador 3s"
               >
                 ⏱
@@ -330,11 +337,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
           {/* Capture button - centered at bottom */}
           {!loading && (
-            <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center pointer-events-auto">
+            <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center pointer-events-auto" style={{ zIndex: 60 }}>
               <button
                 onClick={capturePhoto}
                 disabled={!!error || loading}
                 className="w-20 h-20 rounded-full bg-white hover:bg-gray-200 active:bg-gray-300 transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg border-4 border-white/30"
+                style={{ touchAction: 'manipulation' }}
+                type="button"
               >
                 <div className="w-16 h-16 rounded-full border-2 border-gray-400" />
               </button>
@@ -345,7 +354,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
       {/* Preview mode controls - overlay at bottom */}
       {previewUrl && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-12 pb-8 px-4">
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-12 pb-8 px-4" style={{ zIndex: 60 }}>
           <div className="flex gap-3 w-full max-w-sm mx-auto">
             <Button
               onClick={confirmCapture}
@@ -371,7 +380,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
       {/* Error message */}
       {error && (
-        <div className="absolute top-20 left-4 right-4 mx-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center">
+        <div className="absolute top-20 left-4 right-4 mx-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center" style={{ zIndex: 60 }}>
           {error}
         </div>
       )}
