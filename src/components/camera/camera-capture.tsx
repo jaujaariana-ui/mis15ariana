@@ -237,16 +237,41 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
-    stopCurrentStream();
+
+    // Fully stop and clean up the current stream before switching
+    // This is critical: we must wait for tracks to actually stop before requesting a new one
+    if (streamRef.current) {
+      const tracks = streamRef.current.getTracks();
+      tracks.forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error al detener track:', e);
+        }
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // Brief loading state to give visual feedback during switch
+    setLoading(true);
+
+    // Switch facing mode after cleanup
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-  }, [previewUrl, stopCurrentStream]);
+  }, [previewUrl]);
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    // Small delay to ensure the previous stream is fully stopped before starting new one
+    // Longer delay when switching cameras to ensure the browser fully releases
+    // the previous camera hardware before requesting the new one.
+    // On mobile devices, switching between front/back cameras requires more time
+    // than initial startup because the OS must release one physical camera and
+    // acquire another.
     const timer = setTimeout(() => {
       startCamera();
-    }, 300);
+    }, 800);
     return () => clearTimeout(timer);
   }, [facingMode, startCamera]);
 
