@@ -33,27 +33,38 @@ export async function verifyPhotoOwnership(
     return { owned: true, is_admin: false };
   }
 
-  // Check if the user is an admin of the event
-  const { data: isAdmin } = await supabase
-    .from('event_admins')
+  // Translate auth user ID to organizer ID for admin/organizer checks
+  const { data: organizer } = await supabase
+    .from('organizers')
     .select('id')
-    .eq('event_id', photo.event_id)
-    .eq('user_id', userId)
+    .eq('auth_user_id', userId)
     .single();
 
-  if (isAdmin) {
-    return { owned: false, is_admin: true };
-  }
+  if (organizer) {
+    const organizerId = organizer.id;
 
-  // Check if the user is the organizer
-  const { data: event } = await supabase
-    .from('events')
-    .select('organizer_id')
-    .eq('id', photo.event_id)
-    .single();
+    // Check if the user is an admin of the event
+    const { data: isAdmin } = await supabase
+      .from('event_admins')
+      .select('id')
+      .eq('event_id', photo.event_id)
+      .eq('user_id', organizerId)
+      .single();
 
-  if (event && event.organizer_id === userId) {
-    return { owned: false, is_admin: true };
+    if (isAdmin) {
+      return { owned: false, is_admin: true };
+    }
+
+    // Check if the user is the organizer
+    const { data: event } = await supabase
+      .from('events')
+      .select('organizer_id')
+      .eq('id', photo.event_id)
+      .single();
+
+    if (event && event.organizer_id === organizerId) {
+      return { owned: false, is_admin: true };
+    }
   }
 
   return { owned: false, is_admin: false };
@@ -64,6 +75,17 @@ export async function verifyEventAccess(
   eventId: string,
   userId: string
 ): Promise<boolean> {
+  // userId is the Supabase auth user ID — translate it to the organizers table ID
+  const { data: organizer } = await supabase
+    .from('organizers')
+    .select('id')
+    .eq('auth_user_id', userId)
+    .single();
+
+  if (!organizer) return false;
+
+  const organizerId = organizer.id;
+
   const { data: event } = await supabase
     .from('events')
     .select('organizer_id')
@@ -72,13 +94,13 @@ export async function verifyEventAccess(
 
   if (!event) return false;
 
-  if (event.organizer_id === userId) return true;
+  if (event.organizer_id === organizerId) return true;
 
   const { data: isAdmin } = await supabase
     .from('event_admins')
     .select('id')
     .eq('event_id', eventId)
-    .eq('user_id', userId)
+    .eq('user_id', organizerId)
     .single();
 
   return !!isAdmin;
