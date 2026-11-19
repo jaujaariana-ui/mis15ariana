@@ -50,7 +50,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
     try {
       // Add a timeout to getUserMedia to prevent hanging indefinitely
-      // If the camera doesn't respond in 10 seconds, show an error
+      // If the camera doesn't respond in 5 seconds, show an error
       const mediaStream = await Promise.race([
         navigator.mediaDevices.getUserMedia({
           video: {
@@ -61,7 +61,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           audio: false,
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('La cámara no responde. Intenta de nuevo o selecciona una foto desde la galería.')), 10000)
+          setTimeout(() => reject(new Error('La cámara no responde. Intenta de nuevo o selecciona una foto desde la galería.')), 5000)
         ),
       ]);
 
