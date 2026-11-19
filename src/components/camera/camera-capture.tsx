@@ -35,6 +35,31 @@ function isCameraSupported(): boolean {
          typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
+// Detect if the app is running as an installed PWA
+// In installed PWAs on Android, getUserMedia is unreliable or hangs indefinitely
+function isInstalledPWA(): boolean {
+  if (typeof window === 'undefined') return false;
+  
+  // Check if running in standalone mode (installed PWA)
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+    return true;
+  }
+  
+  // Check for PWA-specific navigator properties
+  if (typeof navigator !== 'undefined') {
+    const nav = navigator as any;
+    if (nav.standalone === true) return true; // iOS Safari
+    if (nav.standalone !== undefined && nav.standalone) return true;
+  }
+  
+  // Check for service worker registration (common in PWAs)
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    return true;
+  }
+  
+  return false;
+}
+
 // Helper: add a timeout to any promise
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -291,8 +316,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     isMountedRef.current = true;
     setOrientation(getOrientation());
 
+    // CRITICAL: If running as installed PWA, skip camera entirely
+    // getUserMedia hangs indefinitely in installed PWAs on Android
+    if (isInstalledPWA()) {
+      console.warn('[Camera] App instalada (PWA) detectada - la cámara no funciona de manera confiable');
+      setCameraError({
+        type: 'not_supported',
+        message: 'En esta app instalada, la cámara no funciona correctamente. La forma más rápida es seleccionar una fotografía desde tu galería.',
+      });
+      setLoading(false);
+    }
     // Check if camera is supported
-    if (!isCameraSupported()) {
+    else if (!isCameraSupported()) {
       console.error('[Camera] Cámara NO soportada en este navegador');
       setCameraError({
         type: 'not_supported',
@@ -566,10 +601,10 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           return (
             <button
               onClick={handleCancel}
-              className="bg-white/20 hover:bg-white/30 text-white font-medium px-6 py-3 rounded-xl transition-colors w-full"
+              className="bg-white/30 hover:bg-white/40 active:bg-white/50 text-white font-semibold text-base px-6 py-4 rounded-xl transition-colors w-full shadow-lg"
               type="button"
             >
-              Elegir fotografía
+              📷 Elegir fotografía desde la galería
             </button>
           );
         default:
