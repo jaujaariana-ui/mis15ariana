@@ -114,6 +114,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       }
 
       try {
+        console.log(`[Camera] Intento ${attempt + 1}: Solicitando getUserMedia con facingMode: ${currentFacingMode}`);
+        
         // Acquire the media stream
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -124,21 +126,23 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           audio: false,
         });
 
+        console.log('[Camera] ✓ Stream obtenido exitosamente');
+        console.log('[Camera] Tracks:', mediaStream.getTracks().map(t => ({ kind: t.kind, label: t.label, enabled: t.enabled })));
+
         // Check abort after getting stream
         if (currentAbort?.signal.aborted) {
           mediaStream.getTracks().forEach(t => t.stop());
-          console.log('startCamera abortado después de obtener stream');
+          console.log('[Camera] Abortado después de obtener stream');
           if (mountedRef.current) {
             setLoading(false);
           }
           return;
         }
 
-        // The video element should already be in the DOM (checked by useEffect mount),
-        // but verify as a safety check
+        // The video element should already be in the DOM
         if (!videoRef.current) {
           mediaStream.getTracks().forEach(t => t.stop());
-          console.error('Video element no está disponible');
+          console.error('[Camera] ✗ Video element no está disponible en el DOM');
           if (mountedRef.current) {
             setError('No se pudo inicializar la vista previa de la cámara. Intenta de nuevo.');
             setLoading(false);
@@ -147,17 +151,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           break;
         }
 
+        console.log('[Camera] ✓ Video element encontrado en el DOM');
         streamRef.current = mediaStream;
         
         // Attach stream to video and play
-        // iOS Safari requires multiple attempts and a delay after setting srcObject
         videoRef.current.srcObject = mediaStream;
+        console.log('[Camera] Stream adjuntado al video element, srcObject:', !!videoRef.current.srcObject);
         
         // Try to play with multiple retries for iOS compatibility
         let played = false;
         for (let playAttempt = 0; playAttempt < 5 && !played; playAttempt++) {
           if (currentAbort?.signal.aborted) {
-            console.log('startCamera abortado durante play');
+            console.log('[Camera] Abortado durante play');
             if (mountedRef.current) setLoading(false);
             return;
           }
@@ -167,14 +172,15 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           }
           try {
             if (videoRef.current) {
+              console.log(`[Camera] Intentando play (intento ${playAttempt + 1}/5)...`);
               await videoRef.current.play();
               played = true;
-              console.log('Video reproduciéndose exitosamente');
+              console.log('[Camera] ✓ Video reproduciéndose exitosamente');
+              console.log('[Camera] Video state:', { paused: videoRef.current.paused, playing: !videoRef.current.paused, readyState: videoRef.current.readyState, videoWidth: videoRef.current.videoWidth, videoHeight: videoRef.current.videoHeight });
             }
           } catch (playErr) {
-            // Retry on play failure
             if (playAttempt === 4) {
-              console.warn('Failed to play video after 5 attempts:', playErr);
+              console.warn('[Camera] ✗ No se pudo reproducir el video después de 5 intentos:', playErr);
             }
           }
         }
@@ -182,22 +188,26 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         // If still not playing, try loading then playing
         if (!played && videoRef.current) {
           try {
+            console.log('[Camera] Intentando load() + play() como último recurso...');
             await videoRef.current.load();
             await new Promise(resolve => setTimeout(resolve, 300));
             if (videoRef.current && !currentAbort?.signal.aborted) {
               await videoRef.current.play();
               played = true;
-              console.log('Video reproduciéndose después de load()');
+              console.log('[Camera] ✓ Video reproduciéndose después de load()');
             }
           } catch (e) {
-            console.warn('Final play attempt failed:', e);
+            console.warn('[Camera] ✗ Último intento de play falló:', e);
           }
         }
 
         // If video still didn't play, mark as error
         if (!played) {
           mediaStream.getTracks().forEach(t => t.stop());
-          console.error('No se pudo reproducir el video después de todos los intentos');
+          console.error('[Camera] ✗ No se pudo reproducir el video después de todos los intentos');
+          if (videoRef.current) {
+            console.error('[Camera] Video state:', { paused: videoRef.current.paused, readyState: videoRef.current.readyState, srcObject: !!videoRef.current.srcObject, videoWidth: videoRef.current.videoWidth, videoHeight: videoRef.current.videoHeight });
+          }
           if (mountedRef.current) {
             setError('No se pudo iniciar la cámara. Intenta de nuevo.');
             setLoading(false);
@@ -254,17 +264,22 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [facingMode, stopCurrentStream]);
 
   // Initialize camera when component mounts
-  // Since the camera is now rendered directly without a Portal, the video element
-  // is available immediately. A small delay ensures React has committed the DOM.
+  // The camera is rendered via a React Portal directly in document.body,
+  // so the video element should be available immediately.
   useEffect(() => {
     // Set initial orientation
     setOrientation(getOrientation());
 
+    console.log('[Camera] Componente montado, iniciando cámara en 300ms...');
     const timer = setTimeout(() => {
       if (mountedRef.current) {
+        console.log('[Camera] Iniciando startCamera...');
+        console.log('[Camera] videoRef.current existe?', !!videoRef.current);
         startCamera();
+      } else {
+        console.log('[Camera] Componente desmontado, no iniciando cámara');
       }
-    }, 100);
+    }, 300);
 
     return () => {
       clearTimeout(timer);
@@ -437,7 +452,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [countdown, capturePhoto]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-black overflow-hidden relative" style={{ position: 'fixed', inset: 0 }}>
+    <div className="fixed inset-0 z-[9999] flex flex-col h-screen w-screen bg-black overflow-hidden" style={{ touchAction: 'auto' }}>
       {/* Video/Preview area - fills entire screen, adapts to orientation */}
       <div className="absolute inset-0 bg-black">
         {loading ? (
@@ -460,12 +475,28 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               playsInline
               muted
               onLoadedMetadata={() => {
+                console.log('[Camera] onLoadedMetadata disparado');
                 if (videoRef.current) {
-                  videoRef.current.play().catch(() => {});
+                  console.log('[Camera] Video metadata:', { readyState: videoRef.current.readyState, videoWidth: videoRef.current.videoWidth, videoHeight: videoRef.current.videoHeight });
+                  videoRef.current.play().catch((e) => {
+                    console.warn('[Camera] Play en onLoadedMetadata falló:', e);
+                  });
                 }
               }}
+              onCanPlay={() => {
+                console.log('[Camera] onCanPlay disparado - video listo para reproducir');
+              }}
               onPlay={() => {
-                // Video is playing successfully
+                console.log('[Camera] onPlay disparado - video reproduciéndose');
+              }}
+              onWaiting={() => {
+                console.log('[Camera] onWaiting - video esperando datos');
+              }}
+              onStalled={() => {
+                console.warn('[Camera] onStalled - stream detenido');
+              }}
+              onError={(e) => {
+                console.error('[Camera] onError en video element:', e);
               }}
               className={`absolute inset-0 w-full h-full object-cover ${
                 facingMode === 'user' ? 'scale-x-[-1]' : ''

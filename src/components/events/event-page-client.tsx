@@ -180,16 +180,6 @@ export default function EventPageClient({ event }: Props) {
                 <span className="hidden sm:inline">Tomar foto</span>
                 <span className="sm:hidden">Cámara</span>
               </button>
-              {cameraOpen && (
-                <div className="fixed inset-0 z-50 bg-black" style={{ touchAction: 'auto' }}>
-                  <CameraCapture
-                    key={cameraKey}
-                    onCapture={handleCameraCapture}
-                    onCancel={handleCameraCancel}
-                  />
-                </div>
-              )}
-
               <button
                 className="premium-btn-secondary flex-1 flex items-center justify-center gap-2 py-3 text-sm"
                 onClick={() => setGalleryOpen(true)}
@@ -263,6 +253,15 @@ export default function EventPageClient({ event }: Props) {
         currentIndex={lightboxIndex ?? 0}
         onNavigate={handleLightboxNavigate}
       />
+
+      {/* Camera Overlay - rendered outside flex container to avoid layout issues */}
+      {cameraOpen && (
+        <CameraCapture
+          key={cameraKey}
+          onCapture={handleCameraCapture}
+          onCancel={handleCameraCancel}
+        />
+      )}
 
       {/* Offline Banner */}
       <OfflineBanner />
