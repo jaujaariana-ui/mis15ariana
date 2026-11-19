@@ -95,8 +95,8 @@ export async function DELETE(request: NextRequest, { params }: Props) {
       return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
     }
 
-    await deleteEvent(adminClient, id);
-    return NextResponse.json({ success: true });
+    const result = await deleteEvent(adminClient, id);
+    return NextResponse.json({ success: true, photosDeleted: result.photosDeleted });
   } catch (error) {
     console.error('Delete event error:', error);
     return NextResponse.json({ error: 'Error al eliminar evento' }, { status: 500 });

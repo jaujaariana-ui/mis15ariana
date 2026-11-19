@@ -113,22 +113,44 @@ export async function getEventStats(
 export async function deleteEvent(
   supabase: SupabaseClient,
   eventId: string
-): Promise<void> {
+): Promise<{ photosDeleted: number }> {
   // First, get all photos for this event to delete them from Cloudinary
-  const { data: photos } = await supabase
+  // Include both active and soft-deleted photos to ensure all Cloudinary assets are cleaned up
+  const { data: photos, error: photosError } = await supabase
     .from('photos')
     .select('storage_key')
     .eq('event_id', eventId);
 
+  if (photosError) {
+    console.error('Error fetching photos for deletion:', photosError);
+  }
+
+  let photosDeleted = 0;
+
   // Delete photos from Cloudinary (in parallel, ignore errors for missing files)
   if (photos && photos.length > 0) {
-    await Promise.all(
-      photos.map((photo) =>
-        deletePhotoFromCloudinary(photo.storage_key).catch((err) => {
-          console.warn(`Failed to delete photo from Cloudinary: ${photo.storage_key}`, err);
-        })
-      )
+    console.log(`Found ${photos.length} photos to delete from Cloudinary for event ${eventId}`);
+    const deleteResults = await Promise.allSettled(
+      photos.map(async (photo) => {
+        if (photo.storage_key) {
+          await deletePhotoFromCloudinary(photo.storage_key);
+          return photo.storage_key;
+        }
+        return null;
+      })
     );
+
+    photosDeleted = deleteResults.filter(
+      (r) => r.status === 'fulfilled'
+    ).length;
+
+    const failedDeletes = deleteResults.filter(
+      (r) => r.status === 'rejected'
+    ).length;
+
+    console.log(`Cloudinary deletion complete: ${photosDeleted} succeeded, ${failedDeletes} failed`);
+  } else {
+    console.log(`No photos found for event ${eventId}`);
   }
 
   // Delete the event — cascading deletes handle:
@@ -142,4 +164,7 @@ export async function deleteEvent(
     .eq('id', eventId);
 
   if (error) throw error;
+
+  console.log(`Event ${eventId} deleted from database with ${photosDeleted} photos removed from Cloudinary`);
+  return { photosDeleted };
 }
