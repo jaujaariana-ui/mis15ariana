@@ -8,15 +8,22 @@ interface CameraCaptureProps {
   onCancel: () => void;
 }
 
+function getOrientation(): 'portrait' | 'landscape' {
+  if (typeof window === 'undefined') return 'portrait';
+  return screen.orientation.type.includes('portrait') ? 'portrait' : 'landscape';
+}
+
 export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const initializedRef = useRef(false);
 
   const stopCurrentStream = useCallback(() => {
@@ -82,12 +89,37 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
+    // Set initial orientation
+    setOrientation(getOrientation());
+    
     startCamera();
     
     return () => {
       stopCurrentStream();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for orientation changes - allow device to rotate freely
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      setOrientation(getOrientation());
+    };
+    
+    // Listen to screen orientation API
+    if (typeof screen !== 'undefined' && screen.orientation) {
+      screen.orientation.addEventListener('change', handleOrientationChange);
+    }
+    
+    // Also listen to resize as fallback
+    window.addEventListener('resize', handleOrientationChange);
+    
+    return () => {
+      if (typeof screen !== 'undefined' && screen.orientation) {
+        screen.orientation.removeEventListener('change', handleOrientationChange);
+      }
+      window.removeEventListener('resize', handleOrientationChange);
+    };
+  }, []);
 
   // Cleanup preview URL on unmount
   useEffect(() => {
@@ -99,31 +131,62 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [previewUrl]);
 
   const switchCamera = useCallback(() => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
     setPreviewUrl(null);
+    setCapturedBlob(null);
+    stopCurrentStream();
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-  }, []);
+  }, [previewUrl, stopCurrentStream]);
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    startCamera();
-  }, [facingMode]);
+    // Small delay to ensure the previous stream is fully stopped before starting new one
+    const timer = setTimeout(() => {
+      startCamera();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [facingMode, startCamera]);
 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    
+    // In landscape, swap width/height for front camera to match natural orientation
+    if (facingMode === 'user' && orientation === 'landscape') {
+      canvas.width = video.videoHeight;
+      canvas.height = video.videoWidth;
+    } else {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    // Mirror and rotate front-facing camera for natural UX
+    if (facingMode === 'user') {
+      if (orientation === 'landscape') {
+        // Rotate 90 degrees and mirror for landscape front camera
+        ctx.translate(canvas.width, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.scale(-1, 1);
+      } else {
+        // Just mirror for portrait front camera
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+    }
 
     ctx.drawImage(video, 0, 0);
 
     canvas.toBlob(
       (blob) => {
         if (blob) {
+          setCapturedBlob(blob);
           const url = URL.createObjectURL(blob);
           setPreviewUrl(url);
         }
@@ -131,33 +194,25 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       'image/jpeg',
       0.9
     );
-  }, []);
+  }, [facingMode, orientation]);
 
   const confirmCapture = useCallback(() => {
-    if (!canvasRef.current) return;
-
-    canvasRef.current.toBlob(
-      (blob) => {
-        if (blob) {
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-          }
-          if (previewUrl) {
-            URL.revokeObjectURL(previewUrl);
-          }
-          onCapture(blob);
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
-  }, [onCapture, previewUrl]);
+    if (!capturedBlob) return;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    onCapture(capturedBlob);
+  }, [onCapture, capturedBlob, previewUrl]);
 
   const retake = useCallback(() => {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
     setPreviewUrl(null);
+    setCapturedBlob(null);
     startCamera();
   }, [previewUrl, startCamera]);
 
@@ -168,6 +223,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
+    setCapturedBlob(null);
     onCancel();
   }, [onCancel, previewUrl]);
 
@@ -187,15 +243,21 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [countdown, capturePhoto]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-black">
-      {/* Video/Preview area - takes up all available space */}
-      <div className="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
+    <div className="flex flex-col h-dvh w-dvh bg-black overflow-hidden relative">
+      {/* Video/Preview area - fills entire screen, adapts to orientation */}
+      <div className="absolute inset-0 bg-black">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-white/60 text-sm">Iniciando cámara...</div>
           </div>
         ) : previewUrl ? (
-          <img src={previewUrl} alt="Vista previa" className="w-full h-full object-contain" />
+          <img
+            src={previewUrl}
+            alt="Vista previa"
+            className={`w-full h-full object-contain ${
+              orientation === 'landscape' ? '' : 'object-contain'
+            }`}
+          />
         ) : (
           <>
             <video
@@ -203,7 +265,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover"
+              className={`absolute inset-0 w-full h-full object-cover ${
+                facingMode === 'user' ? 'scale-x-[-1]' : ''
+              }`}
+              style={{
+                // Ensure video fills screen correctly in both orientations
+                objectPosition: 'center center',
+              }}
             />
             <canvas ref={canvasRef} className="hidden" />
             {countdown !== null && (
@@ -215,46 +283,70 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
             )}
           </>
         )}
-
-        {/* Cancel button at top */}
-        {!loading && !previewUrl && (
-          <button
-            onClick={handleCancel}
-            className="absolute top-4 left-4 text-white/80 hover:text-white bg-black/30 hover:bg-black/50 rounded-full p-2 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        )}
-
-        {/* Switch camera button at top right */}
-        {!loading && !previewUrl && (
-          <button
-            onClick={switchCamera}
-            disabled={!!error || loading}
-            className="absolute top-4 right-4 text-white/80 hover:text-white bg-black/30 hover:bg-black/50 rounded-full p-2 transition-colors disabled:opacity-50"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
-              <path d="M21 3v5h-5"/>
-            </svg>
-          </button>
-        )}
       </div>
 
-      {/* Error message */}
-      {error && (
-        <div className="mx-4 mt-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center">
-          {error}
+      {/* UI Overlay - buttons stay fixed regardless of orientation */}
+      {!previewUrl && (
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Cancel button at top left */}
+          {!loading && (
+            <button
+              onClick={handleCancel}
+              className="absolute top-8 left-4 pointer-events-auto text-white/80 hover:text-white bg-black/30 hover:bg-black/50 rounded-full p-2.5 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          )}
+
+          {/* Side controls - right side, vertically stacked like native camera */}
+          {!loading && (
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-5 pointer-events-auto">
+              {/* Switch camera button */}
+              <button
+                onClick={switchCamera}
+                disabled={!!error || loading}
+                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+                  <path d="M21 3v5h-5"/>
+                </svg>
+              </button>
+
+              {/* Timer button */}
+              <button
+                onClick={startCountdown}
+                disabled={!!error || loading}
+                className="w-12 h-12 rounded-full bg-black/30 hover:bg-black/50 text-white/80 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 text-lg"
+                title="Temporizador 3s"
+              >
+                ⏱
+              </button>
+            </div>
+          )}
+
+          {/* Capture button - centered at bottom */}
+          {!loading && (
+            <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center pointer-events-auto">
+              <button
+                onClick={capturePhoto}
+                disabled={!!error || loading}
+                className="w-20 h-20 rounded-full bg-white hover:bg-gray-200 active:bg-gray-300 transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg border-4 border-white/30"
+              >
+                <div className="w-16 h-16 rounded-full border-2 border-gray-400" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Controls at bottom */}
-      <div className="pb-8 pt-6 px-4 flex items-center justify-center gap-6">
-        {previewUrl ? (
-          <div className="flex gap-3 w-full max-w-sm">
+      {/* Preview mode controls - overlay at bottom */}
+      {previewUrl && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-12 pb-8 px-4">
+          <div className="flex gap-3 w-full max-w-sm mx-auto">
             <Button
               onClick={confirmCapture}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white text-lg h-14"
@@ -269,36 +361,18 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
               🔄 Otra
             </Button>
           </div>
-        ) : (
-          <>
-            {/* Capture button - large circle */}
-            <button
-              onClick={capturePhoto}
-              disabled={!!error || loading}
-              className="w-20 h-20 rounded-full bg-white hover:bg-gray-200 active:bg-gray-300 transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg border-4 border-white/30"
-            >
-              <div className="w-16 h-16 rounded-full border-2 border-gray-400" />
-            </button>
+          <div className="mt-3">
+            <Button variant="ghost" onClick={handleCancel} className="w-full text-white/60 hover:text-white hover:bg-white/10">
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
 
-            {/* Timer button */}
-            <button
-              onClick={startCountdown}
-              disabled={!!error || loading}
-              className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors disabled:opacity-50"
-              title="Temporizador 3s"
-            >
-              ⏱
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Cancel button at very bottom for preview mode */}
-      {previewUrl && (
-        <div className="pb-4 px-4">
-          <Button variant="ghost" onClick={handleCancel} className="w-full text-white/60 hover:text-white hover:bg-white/10">
-            Cancelar
-          </Button>
+      {/* Error message */}
+      {error && (
+        <div className="absolute top-20 left-4 right-4 mx-4 bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 text-center">
+          {error}
         </div>
       )}
     </div>
