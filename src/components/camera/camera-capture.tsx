@@ -55,16 +55,35 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       streamRef.current = mediaStream;
       
       // Wait for the video element to be ready and play
+      // iOS Safari requires multiple attempts and a delay after setting srcObject
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        // Use promise-based play with error handling
-        try {
-          await videoRef.current.play();
-        } catch (playErr) {
-          // If play fails, try again after a short delay (iOS workaround)
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (videoRef.current) {
+        
+        // Try to play with multiple retries for iOS compatibility
+        let played = false;
+        for (let attempt = 0; attempt < 5 && !played; attempt++) {
+          if (attempt > 0) {
+            await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+          }
+          try {
             await videoRef.current.play();
+            played = true;
+          } catch (playErr) {
+            // Retry on play failure
+            if (attempt === 4) {
+              console.warn('Failed to play video after 5 attempts:', playErr);
+            }
+          }
+        }
+        
+        // If still not playing, try loading then playing
+        if (!played && videoRef.current) {
+          try {
+            await videoRef.current.load();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            await videoRef.current!.play();
+          } catch (e) {
+            console.warn('Final play attempt failed:', e);
           }
         }
       }
@@ -239,7 +258,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [countdown, capturePhoto]);
 
   return (
-    <div className="flex flex-col h-dvh w-dvh bg-black overflow-hidden relative">
+    <div className="flex flex-col h-screen w-screen bg-black overflow-hidden relative" style={{ position: 'fixed', inset: 0 }}>
       {/* Video/Preview area - fills entire screen, adapts to orientation */}
       <div className="absolute inset-0 bg-black">
         {loading ? (
@@ -266,11 +285,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
                   videoRef.current.play().catch(() => {});
                 }
               }}
+              onPlay={() => {
+                // Video is playing successfully
+              }}
               className={`absolute inset-0 w-full h-full object-cover ${
                 facingMode === 'user' ? 'scale-x-[-1]' : ''
               }`}
               style={{
-                // Ensure video fills screen correctly in both orientations
+                // Ensure video is visible on all mobile browsers, especially iOS Safari
+                display: 'block',
+                visibility: 'visible',
+                opacity: 1,
                 objectPosition: 'center center',
               }}
             />
