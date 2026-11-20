@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Playfair_Display } from 'next/font/google';
 import './globals.css';
+import PwaLaunchRedirect from '@/components/pwa/pwa-launch-redirect';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -80,6 +81,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" className={`${inter.variable} ${playfair.variable} antialiased`}>
       <body className="min-h-screen bg-gray-50 font-sans text-gray-900">
         {children}
+        <PwaLaunchRedirect />
         <ServiceWorkerRegister />
       </body>
     </html>

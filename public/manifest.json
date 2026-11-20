@@ -1,9 +1,12 @@
 {
+  "id": "/",
   "name": "Xalt Moments — Galería de fotos de eventos",
   "short_name": "Xalt Moments",
   "description": "Comparte fotos de tus eventos mediante QR. Los invitados pueden tomar fotos, subirlas y verlas en tiempo real.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
   "background_color": "#ffffff",
   "theme_color": "#7c3aed",
   "orientation": "any",

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Event } from '@/types/event.types';
 import { Photo } from '@/types/photo.types';
 import { useGallery } from '@/hooks/use-gallery';
 import { useGuestSession } from '@/hooks/use-guest-session';
 import { useUpload } from '@/hooks/use-upload';
+import { PENDING_EVENT_PATH_KEY } from '@/lib/pwa';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CameraCapture } from '@/components/camera/camera-capture';
 import { FileSelector } from '@/components/upload/file-selector';
@@ -18,6 +19,7 @@ import EmptyState from '@/components/gallery/empty-state';
 import LoadingSkeleton from '@/components/shared/loading-skeleton';
 import ConsentModal from '@/components/shared/consent-modal';
 import OfflineBanner from '@/components/shared/offline-banner';
+import InstallPrompt from '@/components/pwa/install-prompt';
 
 interface Props {
   event: Event;
@@ -34,6 +36,19 @@ export default function EventPageClient({ event }: Props) {
   const [cameraKey, setCameraKey] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Conserva la ruta exacta del evento (slug + parámetros) para restaurarla al
+  // abrir la aplicación instalada desde su icono.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PENDING_EVENT_PATH_KEY,
+        window.location.pathname + window.location.search
+      );
+    } catch {
+      // almacenamiento no disponible
+    }
+  }, []);
 
   const handleJoin = async () => {
     if (!displayName.trim()) return;
@@ -265,6 +280,9 @@ export default function EventPageClient({ event }: Props) {
 
       {/* Offline Banner */}
       <OfflineBanner />
+
+      {/* Instalación de la PWA (Android/iOS) */}
+      <InstallPrompt />
 
       {/* Footer */}
       <footer className="border-t border-slate-100 bg-white/50 backdrop-blur-sm mt-8">
