@@ -88,12 +88,17 @@ export default function CoverImageManager({ eventId, initialCoverImage }: CoverI
         throw new Error(`Error al subir la imagen: ${errorText}`);
       }
 
-      // Step 3: Update the event in the database with the new cover image key
+      // Cloudinary returns the full delivery URL. Prefer it over the public_id so the
+      // image can be displayed without rebuilding the URL from public env vars.
+      const cloudinaryResult = await uploadResponse.json().catch(() => ({}));
+      const coverValue: string = cloudinaryResult.secure_url || storageKey;
+
+      // Step 3: Persist the resolved URL on the event
       const updateResponse = await fetch(`/api/events/${eventId}/cover-image`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storageKey }),
+        body: JSON.stringify({ storageKey: coverValue }),
       });
 
       if (!updateResponse.ok) {
@@ -101,9 +106,9 @@ export default function CoverImageManager({ eventId, initialCoverImage }: CoverI
         throw new Error(errorData.error || 'Error al guardar la imagen');
       }
 
-      setCoverImage(storageKey);
+      const updateData = await updateResponse.json().catch(() => ({}));
+      setCoverImage(updateData.cover_image || coverValue);
       setPreviewUrl(null);
-      console.log('Cover image uploaded successfully:', storageKey);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al subir la imagen';
       setError(message);
@@ -193,8 +198,11 @@ export default function CoverImageManager({ eventId, initialCoverImage }: CoverI
           {/* Preview area */}
           <div
             className={`relative w-full aspect-video rounded-lg overflow-hidden border-2 border-dashed transition-colors ${
-              displayUrl ? 'border-gray-200' : 'border-gray-300 hover:border-gray-400'
+              displayUrl
+                ? 'border-gray-200'
+                : 'border-gray-300 hover:border-gray-400 cursor-pointer'
             }`}
+            onClick={!displayUrl ? () => fileInputRef.current?.click() : undefined}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
           >

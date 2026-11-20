@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { getEventById, updateEvent } from '@/services/event.service';
 import { verifyEventAccess } from '@/lib/security/idor-protection';
 import { cloudinary } from '@/lib/cloudinary/client';
-import { getPhotoUrl } from '@/lib/cloudinary/upload';
+import { getPhotoUrl, toCloudinaryPublicId } from '@/lib/cloudinary/upload';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, { params }: Props) {
     // Delete old cover image from Cloudinary if exists
     if (event.cover_image && event.cover_image !== storageKey) {
       try {
-        await cloudinary.v2.uploader.destroy(event.cover_image);
+        await cloudinary.v2.uploader.destroy(toCloudinaryPublicId(event.cover_image));
         console.log(`Deleted old cover image: ${event.cover_image}`);
       } catch (deleteError) {
         console.warn('Failed to delete old cover image:', deleteError);
@@ -148,7 +148,7 @@ export async function DELETE(request: NextRequest, { params }: Props) {
 
     // Delete from Cloudinary
     try {
-      await cloudinary.v2.uploader.destroy(event.cover_image);
+      await cloudinary.v2.uploader.destroy(toCloudinaryPublicId(event.cover_image));
       console.log(`Deleted cover image: ${event.cover_image}`);
     } catch (deleteError) {
       console.warn('Failed to delete cover image from Cloudinary:', deleteError);

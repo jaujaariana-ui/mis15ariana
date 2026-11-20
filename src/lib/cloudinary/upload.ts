@@ -46,6 +46,12 @@ export function buildStorageKey(eventId: string, timestamp: number, random: stri
  * Server-only: uses the Cloudinary SDK.
  */
 export function getPhotoUrl(storageKey: string, transformations?: { width?: number; height?: number; crop?: string }): string {
+  // Some records may already store an absolute Cloudinary URL; return it as-is
+  // instead of treating it as a public_id.
+  if (storageKey.startsWith('http')) {
+    return storageKey;
+  }
+
   const transformationsArray: any[] = [];
   
   if (transformations) {
@@ -97,6 +103,27 @@ export function getDownloadUrl(storageKey: string): string {
     download: true,
     filename_override: storageKey.split('/').pop() || storageKey,
   });
+}
+
+/**
+ * Normalize a stored value (a Cloudinary public_id or a full delivery URL) into a
+ * public_id usable by cloudinary.uploader.destroy().
+ * The cover image may be stored either way, so deletion must tolerate both.
+ */
+export function toCloudinaryPublicId(value: string): string {
+  if (!value || !value.startsWith('http')) {
+    return value;
+  }
+
+  const withoutQuery = value.split('?')[0];
+  const afterUpload = withoutQuery.split('/upload/')[1] ?? withoutQuery;
+  const segments = afterUpload.split('/').filter(Boolean);
+
+  // Drop leading transformation segments and the version segment (e.g. v1712345678)
+  const versionIndex = segments.findIndex((segment) => /^v\d+$/.test(segment));
+  const publicIdSegments = versionIndex >= 0 ? segments.slice(versionIndex + 1) : segments;
+
+  return publicIdSegments.join('/').replace(/\.[^./]+$/, '');
 }
 
 /**
