@@ -199,6 +199,17 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       // Connect the stream to the (already mounted) video element
       video.srcObject = mediaStream;
 
+      // Fuerza al elemento a reiniciar su pipeline de medios. Sin esta llamada,
+      // reasignar `srcObject` sobre un <video> que YA reprodujo un stream no vuelve a
+      // disparar `loadedmetadata`/`loadeddata` en Android/Chrome (ni en iOS Safari), y
+      // la cámara nueva queda en negro. Es la causa de la pantalla negra al cambiar de
+      // cámara. Requiere que `srcObject` ya esté asignado.
+      try {
+        video.load();
+      } catch (loadErr) {
+        console.warn('video.load() falló:', loadErr);
+      }
+
       // Wait for loadedmetadata and non-zero videoWidth/videoHeight
       try {
         await waitForVideoReady(video);
