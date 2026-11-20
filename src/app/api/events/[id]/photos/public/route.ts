@@ -8,10 +8,10 @@ interface Props {
 // Enable Edge runtime for faster responses and better concurrency
 export const runtime = 'edge';
 
-// Force cache for photo listings — with 20-100 concurrent users,
-// caching reduces database load dramatically. Photos are updated via
-// Supabase Realtime, so stale cache is acceptable (max 2 seconds).
-export const revalidate = 2;
+// Disable page-level revalidation — cache is controlled per-response via Cache-Control headers.
+// Photos are updated in real-time via Supabase Realtime, so stale cache must be avoided
+// to prevent deleted photos from reappearing.
+export const revalidate = 0;
 
 export async function GET(request: NextRequest, { params }: Props) {
   try {
@@ -59,9 +59,10 @@ export async function GET(request: NextRequest, { params }: Props) {
       guest_display_name: photo.guest_profiles?.display_name || null,
     }));
 
-    // Set cache headers for CDN edge caching
+    // Disable caching for photo listings to prevent deleted photos from reappearing.
+    // Supabase Realtime handles live updates, so fresh data is always preferred.
     const response = NextResponse.json({ photos: mappedPhotos });
-    response.headers.set('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=10');
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     response.headers.set('Vary', 'Accept-Encoding');
     return response;
   } catch (error) {
