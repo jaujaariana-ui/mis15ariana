@@ -14,6 +14,13 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
 }
 
+declare global {
+  interface Window {
+    /** Evento capturado por el script temprano del layout (ver src/app/layout.tsx). */
+    __xaltInstallPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 type InstallOutcome = 'accepted' | 'dismissed' | 'unavailable';
 
 interface UsePwaInstallResult {
@@ -40,31 +47,46 @@ export function usePwaInstall(): UsePwaInstallResult {
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect -- Sincroniza el estado con APIs exclusivas del navegador (navigator/localStorage); leerlas en el render provocaría un desajuste de hidratación. */
+    /* eslint-disable react-hooks/set-state-in-effect -- Sincroniza el estado con APIs exclusivas del navegador (navigator/sessionStorage); leerlas en el render provocaría un desajuste de hidratación. */
     setIsInstalled(isStandaloneDisplay());
     setIsIOS(isIOSDevice());
 
     try {
-      setIsDismissed(localStorage.getItem(PWA_INSTALL_DISMISSED_KEY) === '1');
+      setIsDismissed(sessionStorage.getItem(PWA_INSTALL_DISMISSED_KEY) === '1');
     } catch {
       setIsDismissed(false);
     }
+
+    // Recupera un `beforeinstallprompt` capturado por el script temprano del layout
+    // antes de que este componente montara (evita perder el evento por una carrera).
+    const adoptCapturedPrompt = () => {
+      const captured = window.__xaltInstallPrompt;
+      if (captured) {
+        deferredPromptRef.current = captured;
+        setCanPrompt(true);
+      }
+    };
+    adoptCapturedPrompt();
     /* eslint-enable react-hooks/set-state-in-effect */
 
     const handleBeforeInstallPrompt = (event: Event) => {
       // Evita el mini-infobar del navegador para usar nuestra propia ventana.
       event.preventDefault();
-      deferredPromptRef.current = event as BeforeInstallPromptEvent;
+      const deferred = event as BeforeInstallPromptEvent;
+      deferredPromptRef.current = deferred;
+      // Se conserva también en window por consistencia con la captura temprana.
+      window.__xaltInstallPrompt = deferred;
       setCanPrompt(true);
     };
 
     const handleAppInstalled = () => {
       // Tras instalar, el evento deja de ser reutilizable.
       deferredPromptRef.current = null;
+      window.__xaltInstallPrompt = null;
       setCanPrompt(false);
       setIsInstalled(true);
       try {
-        localStorage.removeItem(PWA_INSTALL_DISMISSED_KEY);
+        sessionStorage.removeItem(PWA_INSTALL_DISMISSED_KEY);
       } catch {
         // almacenamiento no disponible
       }
@@ -81,11 +103,13 @@ export function usePwaInstall(): UsePwaInstallResult {
     const handleDisplayModeChange = () => setIsInstalled(isStandaloneDisplay());
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('xalt:installprompt', adoptCapturedPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
     mediaQueries.forEach((mq) => mq.addEventListener('change', handleDisplayModeChange));
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('xalt:installprompt', adoptCapturedPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
       mediaQueries.forEach((mq) => mq.removeEventListener('change', handleDisplayModeChange));
     };
@@ -100,11 +124,13 @@ export function usePwaInstall(): UsePwaInstallResult {
       const { outcome } = await deferred.userChoice;
       // Un beforeinstallprompt solo puede usarse una vez.
       deferredPromptRef.current = null;
+      window.__xaltInstallPrompt = null;
       setCanPrompt(false);
       return outcome;
     } catch (err) {
       console.warn('No se pudo iniciar la instalación de la PWA:', err);
       deferredPromptRef.current = null;
+      window.__xaltInstallPrompt = null;
       setCanPrompt(false);
       return 'unavailable';
     }
@@ -113,7 +139,9 @@ export function usePwaInstall(): UsePwaInstallResult {
   const dismiss = useCallback(() => {
     setIsDismissed(true);
     try {
-      localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
+      // Por sesión: el invitado vuelve a ver la oferta al reingresar en una nueva
+      // sesión, en lugar de ocultarla para siempre.
+      sessionStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
     } catch {
       // almacenamiento no disponible
     }

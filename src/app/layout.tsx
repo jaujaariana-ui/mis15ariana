@@ -80,6 +80,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={`${inter.variable} ${playfair.variable} antialiased`}>
       <body className="min-h-screen bg-gray-50 font-sans text-gray-900">
+        {/* Captura temprana del evento de instalación PWA. Se ejecuta antes de la
+            hidratación de React para no perder `beforeinstallprompt`, que Chrome
+            puede disparar antes de que monte el componente de instalación. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                window.__xaltInstallPrompt = null;
+                window.addEventListener('beforeinstallprompt', function (event) {
+                  event.preventDefault();
+                  window.__xaltInstallPrompt = event;
+                  window.dispatchEvent(new Event('xalt:installprompt'));
+                });
+                window.addEventListener('appinstalled', function () {
+                  window.__xaltInstallPrompt = null;
+                  window.dispatchEvent(new Event('xalt:appinstalled'));
+                });
+              })();
+            `,
+          }}
+        />
         {children}
         <PwaLaunchRedirect />
         <ServiceWorkerRegister />
