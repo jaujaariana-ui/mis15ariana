@@ -49,24 +49,61 @@ export default function CoverImageManager({ eventId, initialCoverImage }: CoverI
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`/api/events/${eventId}/cover-image`, {
+      // Step 1: Get signed upload parameters from our API
+      const uploadUrlResponse = await fetch(`/api/events/${eventId}/cover-image/upload-url`, {
         method: 'POST',
         credentials: 'include',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mimeType: file.type,
+          originalFilename: file.name,
+        }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al subir la imagen');
+      if (!uploadUrlResponse.ok) {
+        const errorData = await uploadUrlResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error al preparar la subida');
       }
 
-      setCoverImage(data.cover_image);
+      const { uploadUrl, storageKey, signature, timestamp, apiKey, publicId, folder } =
+        await uploadUrlResponse.json();
+
+      // Step 2: Upload directly to Cloudinary from the browser
+      const cloudinaryFormData = new FormData();
+      cloudinaryFormData.append('file', file as File, file.name);
+      cloudinaryFormData.append('api_key', apiKey);
+      cloudinaryFormData.append('timestamp', String(timestamp));
+      cloudinaryFormData.append('signature', signature);
+      cloudinaryFormData.append('folder', folder);
+      cloudinaryFormData.append('public_id', publicId);
+      cloudinaryFormData.append('resource_type', 'image');
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        body: cloudinaryFormData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        throw new Error(`Error al subir la imagen: ${errorText}`);
+      }
+
+      // Step 3: Update the event in the database with the new cover image key
+      const updateResponse = await fetch(`/api/events/${eventId}/cover-image`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storageKey }),
+      });
+
+      if (!updateResponse.ok) {
+        const errorData = await updateResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error al guardar la imagen');
+      }
+
+      setCoverImage(storageKey);
       setPreviewUrl(null);
-      console.log('Cover image uploaded successfully');
+      console.log('Cover image uploaded successfully:', storageKey);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al subir la imagen';
       setError(message);

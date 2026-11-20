@@ -6,8 +6,6 @@ import { verifyEventAccess } from '@/lib/security/idor-protection';
 import { cloudinary } from '@/lib/cloudinary/client';
 import { getPhotoUrl } from '@/lib/cloudinary/upload';
 
-const CLOUDINARY_FOLDER = 'xalt-moments/cover_images';
-
 interface Props {
   params: Promise<{ id: string }>;
 }
@@ -48,8 +46,10 @@ export async function GET(request: NextRequest, { params }: Props) {
 }
 
 /**
- * POST - Upload a new cover image for an event.
- * Expects multipart/form-data with a 'file' field.
+ * POST - Update the event's cover image with the storage key.
+ * The image is already uploaded to Cloudinary by the client via direct upload.
+ * This endpoint only updates the database record.
+ * Expects JSON body: { storageKey: string }
  */
 export async function POST(request: NextRequest, { params }: Props) {
   try {
@@ -75,33 +75,19 @@ export async function POST(request: NextRequest, { params }: Props) {
       return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
     }
 
-    // Parse multipart form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    if (!file) {
-      return NextResponse.json({ error: 'No se proporcionó archivo' }, { status: 400 });
-    }
+    // Parse JSON body
+    const body = await request.json();
+    const { storageKey } = body;
 
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
+    if (!storageKey || typeof storageKey !== 'string') {
       return NextResponse.json(
-        { error: 'Tipo de archivo no permitido. Use JPEG, PNG o WebP.' },
+        { error: 'Se requiere el storageKey de la imagen' },
         { status: 400 }
       );
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: 'El archivo es demasiado grande. Máximo 10MB.' },
-        { status: 400 }
-      );
-    }
-
-    // Delete old cover image if exists
-    if (event.cover_image) {
+    // Delete old cover image from Cloudinary if exists
+    if (event.cover_image && event.cover_image !== storageKey) {
       try {
         await cloudinary.v2.uploader.destroy(event.cover_image);
         console.log(`Deleted old cover image: ${event.cover_image}`);
@@ -110,40 +96,12 @@ export async function POST(request: NextRequest, { params }: Props) {
       }
     }
 
-    // Upload new image to Cloudinary
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // Create a temporary file path for upload
-    const tempPath = `/tmp/cover-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-
-    const uploadResult = await new Promise<any>((resolve, reject) => {
-      const stream = cloudinary.v2.uploader.upload_stream(
-        {
-          folder: CLOUDINARY_FOLDER,
-          public_id: `event_${id}`,
-          overwrite: true,
-          transformation: [
-            { width: 1920, height: 1080, crop: 'limit' },
-            { quality: 'auto' },
-            { fetch_format: 'auto' },
-          ],
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      );
-      stream.end(buffer);
-    });
-
-    const storageKey = uploadResult.public_id;
-    const url = getPhotoUrl(storageKey);
-
-    console.log(`Uploaded cover image for event ${id}: ${storageKey}`);
-
     // Update event with new cover image
     const updatedEvent = await updateEvent(adminClient, id, { cover_image: storageKey });
+
+    const url = getPhotoUrl(storageKey);
+
+    console.log(`Updated cover image for event ${id}: ${storageKey}`);
 
     return NextResponse.json({
       success: true,
@@ -152,8 +110,8 @@ export async function POST(request: NextRequest, { params }: Props) {
       event: updatedEvent,
     });
   } catch (error) {
-    console.error('Upload cover image error:', error);
-    return NextResponse.json({ error: 'Error al subir imagen de portada' }, { status: 500 });
+    console.error('Update cover image error:', error);
+    return NextResponse.json({ error: 'Error al actualizar imagen de portada' }, { status: 500 });
   }
 }
 
