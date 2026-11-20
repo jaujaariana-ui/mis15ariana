@@ -134,7 +134,7 @@ export default function AdminRegister() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  autoComplete="new-password"
+                  autoComplete="confirm-new-password"
                   minLength={6}
                 />
               </div>

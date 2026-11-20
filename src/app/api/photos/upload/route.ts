@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { registerPhoto } from '@/services/photo.service';
 import { uploadPhotoSchema } from '@/lib/validations/photo-schemas';
+import { verifyGuestToken, GUEST_COOKIE_NAME } from '@/lib/guest-token';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    // Verify guest token from cookie
+    const token = request.cookies.get(GUEST_COOKIE_NAME)?.value;
+    if (!token) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
 
-    if (authError || !user) {
+    const payload = verifyGuestToken(token);
+    if (!payload) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
@@ -21,12 +22,12 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
-    // Verify guest ownership and check if blocked
+    // Verify guest profile exists and matches the token
     const { data: guest } = await adminClient
       .from('guest_profiles')
       .select('id, is_blocked')
-      .eq('id', validated.guest_id)
-      .eq('auth_user_id', user.id)
+      .eq('id', payload.guest_id)
+      .eq('event_id', validated.event_id)
       .single();
 
     if (!guest) {

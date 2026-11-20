@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { GuestProfile } from '@/types/guest.types';
 
 export function useGuestSession(eventId: string | null) {
@@ -14,33 +13,18 @@ export function useGuestSession(eventId: string | null) {
     if (!eventId) return;
 
     const initGuest = async () => {
-      const supabase = createClient();
-
-      // Check for existing session
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (user) {
-          // Check for existing guest profile using admin API
-          try {
-            const resp = await fetch(`/api/guest/profile?event_id=${eventId}`);
-            if (resp.ok) {
-              const data = await resp.json();
-              if (data.profile) {
-                setGuest(data.profile);
-                setDisplayName(data.profile.display_name);
-              }
-            }
-          } catch (e) {
-            console.error('Error checking existing profile:', e);
+      // Check for existing guest profile via the API (uses guest token cookie)
+      try {
+        const resp = await fetch(`/api/guest/profile?event_id=${eventId}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.profile) {
+            setGuest(data.profile);
+            setDisplayName(data.profile.display_name);
           }
         }
+      } catch (e) {
+        console.error('Error checking existing profile:', e);
       }
 
       setLoading(false);
@@ -71,15 +55,7 @@ export function useGuestSession(eventId: string | null) {
 
       const data = await resp.json();
 
-      // Set the session in the client so the user is now authenticated
-      if (data.session) {
-        const supabase = createClient();
-        await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        });
-      }
-
+      // The server sets the guest token as an HTTP-only cookie automatically
       setGuest(data.profile);
       return data.profile;
     } catch (err: any) {

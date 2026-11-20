@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getOrCreateGuestProfile, getGuestProfile } from '@/services/guest.service';
+import { getOrCreateGuestProfile } from '@/services/guest.service';
 import { v4 as uuidv4 } from 'uuid';
+import { generateGuestToken, verifyGuestToken, getGuestCookieOptions, GUEST_COOKIE_NAME } from '@/lib/guest-token';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const cookies = request.cookies;
+    const token = cookies.get(GUEST_COOKIE_NAME)?.value;
 
-    if (!session) {
+    if (!token) {
+      return NextResponse.json({ profile: null });
+    }
+
+    const payload = verifyGuestToken(token);
+    if (!payload) {
       return NextResponse.json({ profile: null });
     }
 
@@ -22,8 +25,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'event_id requerido' }, { status: 400 });
     }
 
+    // Verify the token matches the requested event
+    if (payload.event_id !== eventId) {
+      return NextResponse.json({ profile: null });
+    }
+
     const adminClient = createAdminClient();
-    const profile = await getGuestProfile(adminClient, session.user.id, eventId);
+    
+    // Look up the guest profile directly by guest_id
+    const { data: profile, error } = await adminClient
+      .from('guest_profiles')
+      .select('*')
+      .eq('id', payload.guest_id)
+      .eq('event_id', eventId)
+      .single();
+
+    if (error || !profile) {
+      return NextResponse.json({ profile: null });
+    }
+
     return NextResponse.json({ profile });
   } catch (error) {
     console.error('Get guest profile error:', error);
@@ -44,46 +64,26 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
-    // Create a temporary user in Supabase Auth for this guest
-    const email = `guest-${uuidv4().slice(0, 8)}@temp.xaltmoments.local`;
-    const password = uuidv4();
+    // Generate a local UUID instead of creating a Supabase Auth user
+    const authUserId = uuidv4();
 
-    const { data: userData, error: userError } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
-    if (userError || !userData.user) {
-      console.error('Create guest user error:', userError);
-      return NextResponse.json({ error: 'Error al crear usuario' }, { status: 500 });
-    }
-
-    // Create the guest profile linked to this user
-    const profile = await getOrCreateGuestProfile(adminClient, userData.user.id, {
+    // Create the guest profile directly in the database
+    const profile = await getOrCreateGuestProfile(adminClient, authUserId, {
       display_name: display_name.trim(),
       event_id,
     });
 
-    // Sign in the user to get a session
-    const { data: signInData, error: signInError } = await adminClient.auth.signInWithPassword({
-      email,
-      password,
+    // Generate a JWT token for this guest
+    const token = generateGuestToken({
+      guest_id: profile.id,
+      auth_user_id: authUserId,
+      event_id,
     });
 
-    if (signInError || !signInData.session) {
-      console.error('Sign in guest error:', signInError);
-      return NextResponse.json({ error: 'Error de sesión' }, { status: 500 });
-    }
+    const response = NextResponse.json({ profile }, { status: 201 });
+    response.cookies.set(GUEST_COOKIE_NAME, token, getGuestCookieOptions());
 
-    // Return session data so the client can setSession
-    return NextResponse.json({
-      profile,
-      session: {
-        access_token: signInData.session.access_token,
-        refresh_token: signInData.session.refresh_token,
-      },
-    }, { status: 201 });
+    return response;
   } catch (error) {
     console.error('Create guest profile error:', error);
     return NextResponse.json({ error: 'Error al crear perfil' }, { status: 500 });
