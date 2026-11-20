@@ -15,6 +15,79 @@ function getOrientation(): 'portrait' | 'landscape' {
 
 // Configurable delay to allow Android to release the camera hardware between switches
 const CAMERA_RELEASE_DELAY = 700;
+// Max time to wait for video metadata + real (non-zero) dimensions
+const VIDEO_READY_TIMEOUT = 8000;
+// Max time to wait for the <video> element to be mounted
+const VIDEO_ELEMENT_TIMEOUT = 3000;
+
+// Translate a getUserMedia failure into a human-readable, actionable message
+function describeCameraError(err: unknown): string {
+  if (err instanceof DOMException) {
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'SecurityError':
+        return 'Permiso de cámara denegado. Permite el acceso a la cámara en la configuración de tu navegador.';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'No se encontró cámara en este dispositivo. Intenta seleccionar fotos desde la galería.';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'La cámara está ocupada por otra aplicación. Cierra la otra app e intenta de nuevo.';
+      case 'OverconstrainedError':
+        return 'La configuración solicitada no es compatible con la cámara disponible.';
+      case 'AbortError':
+        return 'La cámara no pudo iniciarse (AbortError). Intenta de nuevo.';
+      default:
+        return `No se pudo acceder a la cámara (${err.name}).`;
+    }
+  }
+  return 'No se pudo acceder a la cámara. Intenta seleccionar fotos desde la galería.';
+}
+
+// Wait until the video element has loaded metadata AND non-zero dimensions.
+// Rejects with a code describing the exact failure so we can diagnose it.
+function waitForVideoReady(
+  video: HTMLVideoElement,
+  timeoutMs = VIDEO_READY_TIMEOUT
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const hasDimensions = () => video.videoWidth > 0 && video.videoHeight > 0;
+
+    // Already ready
+    if (video.readyState >= 1 && hasDimensions()) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      video.removeEventListener('loadedmetadata', check);
+      video.removeEventListener('loadeddata', check);
+      video.removeEventListener('canplay', check);
+      clearTimeout(timer);
+    };
+    const check = () => {
+      if (settled) return;
+      if (hasDimensions()) {
+        settled = true;
+        cleanup();
+        resolve();
+      }
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (video.readyState < 1) reject(new Error('METADATA_MISSING'));
+      else if (!hasDimensions()) reject(new Error('ZERO_DIMENSIONS'));
+      else resolve();
+    }, timeoutMs);
+
+    video.addEventListener('loadedmetadata', check);
+    video.addEventListener('loadeddata', check);
+    video.addEventListener('canplay', check);
+  });
+}
 
 export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -24,6 +97,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
@@ -33,7 +107,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   // Request ID: discards stale getUserMedia responses from older init calls
   const requestIdRef = useRef(0);
 
-  // Completely release the current camera: stop all tracks, pause video, null srcObject, clear ref
+  // Completely release the current camera: stop all tracks, pause video, null srcObject
   const releaseCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
@@ -46,84 +120,134 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       streamRef.current = null;
     }
     if (videoRef.current) {
-      videoRef.current.pause();
+      try {
+        videoRef.current.pause();
+      } catch (e) {
+        console.warn('Error al pausar video:', e);
+      }
       videoRef.current.srcObject = null;
     }
+    setIsVideoReady(false);
   }, []);
 
+  // Controlled connection: wait for the <video> element to be mounted if needed
+  const waitForVideoElement = useCallback(
+    async (timeoutMs = VIDEO_ELEMENT_TIMEOUT): Promise<HTMLVideoElement | null> => {
+      if (videoRef.current) return videoRef.current;
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (videoRef.current) return videoRef.current;
+      }
+      return videoRef.current;
+    },
+    []
+  );
+
   // Start camera with a unique request ID to avoid stale responses
-  const startCamera = useCallback(async (targetFacingMode: 'user' | 'environment') => {
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setError(null);
+  const startCamera = useCallback(
+    async (targetFacingMode: 'user' | 'environment') => {
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
+      setError(null);
+      setIsVideoReady(false);
 
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: targetFacingMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      // Never leave a previous stream open without being connected
+      releaseCamera();
 
-      // Discard if a newer request has already started
-      if (requestId !== requestIdRef.current) return;
+      let mediaStream: MediaStream | null = null;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: targetFacingMode,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        });
+      } catch (err) {
+        // Only surface the error if this is still the latest request
+        if (requestId !== requestIdRef.current) return;
+        setError(describeCameraError(err));
+        setLoading(false);
+        return;
+      }
+
+      // Discard if a newer request has already started — stop the orphan stream
+      if (requestId !== requestIdRef.current) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
 
       streamRef.current = mediaStream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-
-        // Try to play with multiple retries for iOS compatibility
-        let played = false;
-        for (let attempt = 0; attempt < 5 && !played; attempt++) {
-          if (attempt > 0) {
-            await new Promise(resolve => setTimeout(resolve, 200 * attempt));
-          }
-          // Discard if superseded
-          if (requestId !== requestIdRef.current) return;
-          try {
-            await videoRef.current.play();
-            played = true;
-          } catch (playErr) {
-            if (attempt === 4) {
-              console.warn('Failed to play video after 5 attempts:', playErr);
-            }
-          }
-        }
-
-        // If still not playing, try loading then playing
-        if (!played && videoRef.current) {
-          try {
-            await videoRef.current.load();
-            await new Promise(resolve => setTimeout(resolve, 300));
-            if (requestId !== requestIdRef.current) return;
-            await videoRef.current.play();
-          } catch (e) {
-            console.warn('Final play attempt failed:', e);
-          }
-        }
+      // The <video> element stays mounted permanently, but guard anyway
+      const video = await waitForVideoElement();
+      if (requestId !== requestIdRef.current) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current === mediaStream) streamRef.current = null;
+        return;
       }
-    } catch (err) {
-      // Only update error if this is still the latest request
-      if (requestId !== requestIdRef.current) return;
-      const message =
-        err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Permiso de cámara denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.'
-          : err instanceof DOMException && err.name === 'NotFoundError'
-          ? 'No se encontró cámara en este dispositivo. Intenta seleccionar fotos desde la galería.'
-          : err instanceof DOMException && err.name === 'NotReadableError'
-          ? 'La cámara está siendo usada por otra aplicación. Cierra la otra app e intenta de nuevo.'
-          : 'No se pudo acceder a la cámara. Intenta seleccionar fotos desde la galería.';
-      setError(message);
-    } finally {
-      // Only update loading if this is still the latest request
-      if (requestId === requestIdRef.current) {
+      if (!video) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        setError('No se pudo preparar el elemento de video. Intenta de nuevo.');
         setLoading(false);
+        return;
       }
-    }
-  }, []);
+
+      // Connect the stream to the (already mounted) video element
+      video.srcObject = mediaStream;
+
+      // Wait for loadedmetadata and non-zero videoWidth/videoHeight
+      try {
+        await waitForVideoReady(video);
+      } catch (metaErr) {
+        if (requestId !== requestIdRef.current) return;
+        const reason = metaErr instanceof Error ? metaErr.message : '';
+        if (reason === 'ZERO_DIMENSIONS') {
+          setError(
+            'El video recibió el flujo pero sus dimensiones son cero. Intenta de nuevo o cambia de cámara.'
+          );
+        } else {
+          setError('El video no recibió metadata de la cámara. Intenta de nuevo o cambia de cámara.');
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (requestId !== requestIdRef.current) return;
+
+      // Play and confirm real playback (do not report ready until it is actually playing)
+      let playing = false;
+      for (let attempt = 0; attempt < 5 && !playing; attempt++) {
+        if (requestId !== requestIdRef.current) return;
+        try {
+          await video.play();
+          playing = !video.paused && video.videoWidth > 0 && video.videoHeight > 0;
+        } catch (playErr) {
+          if (attempt === 4) {
+            console.warn('video.play() falló tras 5 intentos:', playErr);
+          }
+        }
+        if (!playing) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+        }
+      }
+
+      if (requestId !== requestIdRef.current) return;
+
+      if (!playing) {
+        setError('No se pudo reproducir el video de la cámara. Intenta de nuevo o cambia de cámara.');
+        setLoading(false);
+        return;
+      }
+
+      setIsVideoReady(true);
+      setLoading(false);
+    },
+    [releaseCamera, waitForVideoElement]
+  );
 
   // Initialize camera when component mounts — single initialization point
   useEffect(() => {
@@ -163,36 +287,36 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     };
   }, [previewUrl]);
 
-  // Sequential camera switch: release current → wait → start new
+  // Sequential camera switch: release current → wait → start new on the same <video>
   const switchCamera = useCallback(async () => {
     // Prevent concurrent switches
     if (switchingRef.current) return;
     switchingRef.current = true;
 
-    // Clear any captured photo
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    try {
+      // Clear any captured photo
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
+      setCapturedBlob(null);
+      setCountdown(null);
+
+      // Determine the new facing mode
+      const newMode = facingMode === 'user' ? 'environment' : 'user';
+      setFacingMode(newMode);
+
+      // Step 1: Fully release the current camera (stop tracks, pause, detach srcObject)
+      releaseCamera();
+
+      // Step 2: Wait for Android to release the hardware device
+      await new Promise((resolve) => setTimeout(resolve, CAMERA_RELEASE_DELAY));
+
+      // Step 3: Start the new camera; it connects to the SAME video element
+      await startCamera(newMode);
+    } finally {
+      switchingRef.current = false;
     }
-    setPreviewUrl(null);
-    setCapturedBlob(null);
-
-    // Determine the new facing mode
-    const newMode = facingMode === 'user' ? 'environment' : 'user';
-
-    // Step 1: Fully release the current camera
-    releaseCamera();
-
-    // Step 2: Update facing mode state
-    setFacingMode(newMode);
-
-    // Step 3: Wait for Android to release the hardware device
-    await new Promise(resolve => setTimeout(resolve, CAMERA_RELEASE_DELAY));
-
-    // Step 4: Start the new camera with a single request
-    startCamera(newMode);
-
-    // Step 5: Unlock
-    switchingRef.current = false;
   }, [facingMode, previewUrl, releaseCamera, startCamera]);
 
   const capturePhoto = useCallback(() => {
@@ -200,7 +324,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    
+
     // In landscape, swap width/height for front camera to match natural orientation
     if (facingMode === 'user' && orientation === 'landscape') {
       canvas.width = video.videoHeight;
@@ -244,14 +368,12 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   const confirmCapture = useCallback(() => {
     if (!capturedBlob) return;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
+    releaseCamera();
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
     onCapture(capturedBlob);
-  }, [onCapture, capturedBlob, previewUrl]);
+  }, [onCapture, capturedBlob, previewUrl, releaseCamera]);
 
   const retake = useCallback(() => {
     if (previewUrl) {
@@ -263,15 +385,13 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, [previewUrl, startCamera, facingMode]);
 
   const handleCancel = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
+    releaseCamera();
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
     setCapturedBlob(null);
     onCancel();
-  }, [onCancel, previewUrl]);
+  }, [onCancel, previewUrl, releaseCamera]);
 
   const startCountdown = useCallback(() => {
     setCountdown(3);
@@ -290,55 +410,51 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-black overflow-hidden relative" style={{ position: 'fixed', inset: 0 }}>
-      {/* Video/Preview area - fills entire screen, adapts to orientation */}
+      {/* Video/Preview area - the <video> element stays mounted permanently */}
       <div className="absolute inset-0 bg-black">
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-white/60 text-sm">Iniciando cámara...</div>
-          </div>
-        ) : previewUrl ? (
+        {/* The <video> is never unmounted: it is hidden with visibility/opacity, never display:none */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={() => {
+            videoRef.current?.play().catch(() => {});
+          }}
+          className={`absolute inset-0 w-full h-full object-cover ${
+            facingMode === 'user' ? 'scale-x-[-1]' : ''
+          }`}
+          style={{
+            display: 'block',
+            visibility: previewUrl ? 'hidden' : 'visible',
+            opacity: previewUrl ? 0 : isVideoReady ? 1 : 0,
+            objectPosition: 'center center',
+            transition: 'opacity 200ms ease',
+          }}
+        />
+        <canvas ref={canvasRef} className="hidden" />
+
+        {/* Captured preview overlays the live video */}
+        {previewUrl && (
           <img
             src={previewUrl}
             alt="Vista previa"
-            className={`w-full h-full object-contain ${
-              orientation === 'landscape' ? '' : 'object-contain'
-            }`}
+            className="absolute inset-0 w-full h-full object-contain"
           />
-        ) : (
-          <>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              onLoadedMetadata={() => {
-                if (videoRef.current) {
-                  videoRef.current.play().catch(() => {});
-                }
-              }}
-              onPlay={() => {
-                // Video is playing successfully
-              }}
-              className={`absolute inset-0 w-full h-full object-cover ${
-                facingMode === 'user' ? 'scale-x-[-1]' : ''
-              }`}
-              style={{
-                // Ensure video is visible on all mobile browsers, especially iOS Safari
-                display: 'block',
-                visibility: 'visible',
-                opacity: 1,
-                objectPosition: 'center center',
-              }}
-            />
-            <canvas ref={canvasRef} className="hidden" />
-            {countdown !== null && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-8xl font-bold text-white/80 animate-pulse">
-                  {countdown}
-                </div>
-              </div>
-            )}
-          </>
+        )}
+
+        {/* Countdown overlay */}
+        {!previewUrl && countdown !== null && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="text-8xl font-bold text-white/80 animate-pulse">{countdown}</div>
+          </div>
+        )}
+
+        {/* Loading indicator is a visual layer on top of the mounted video */}
+        {loading && !error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
+            <div className="text-white/70 text-sm">Iniciando cámara...</div>
+          </div>
         )}
       </div>
 
