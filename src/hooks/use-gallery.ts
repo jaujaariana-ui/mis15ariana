@@ -15,6 +15,54 @@ export function useGallery(eventId: string | null) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   // Track received photo IDs to prevent duplicates from realtime + refresh race conditions
   const receivedIdsRef = useRef<Set<string>>(new Set());
+  // Caché guest_id -> display_name. Realtime solo entrega la fila de `photos`
+  // (sin la relación con guest_profiles), así que resolvemos el nombre aparte.
+  const guestNamesRef = useRef<Map<string, string>>(new Map());
+  const pendingGuestIdsRef = useRef<Set<string>>(new Set());
+  const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cacheGuestNames = useCallback((list: Photo[]) => {
+    for (const photo of list) {
+      if (photo.guest_id && photo.guest_display_name) {
+        guestNamesRef.current.set(photo.guest_id, photo.guest_display_name);
+      }
+    }
+  }, []);
+
+  // Realtime no incluye el nombre del invitado: lo pedimos una sola vez por
+  // guest_id (agrupado y con retardo) y rellenamos las fotos ya mostradas.
+  const resolveMissingGuestNames = useCallback(() => {
+    if (!eventId || resolveTimerRef.current) return;
+    resolveTimerRef.current = setTimeout(async () => {
+      resolveTimerRef.current = null;
+      const ids = Array.from(pendingGuestIdsRef.current);
+      pendingGuestIdsRef.current.clear();
+      if (ids.length === 0) return;
+
+      try {
+        const resp = await fetch(`/api/events/${eventId}/guests/names?ids=${ids.join(',')}`);
+        if (!resp.ok) return;
+        const { guests } = await resp.json();
+        const resolved = new Map<string, string>();
+        for (const guest of (guests || []) as { id: string; display_name: string }[]) {
+          if (guest?.id && guest?.display_name) {
+            guestNamesRef.current.set(guest.id, guest.display_name);
+            resolved.set(guest.id, guest.display_name);
+          }
+        }
+        if (resolved.size === 0) return;
+        setPhotos((prev) =>
+          prev.map((photo) =>
+            !photo.guest_display_name && resolved.has(photo.guest_id)
+              ? { ...photo, guest_display_name: resolved.get(photo.guest_id)! }
+              : photo
+          )
+        );
+      } catch {
+        // Es solo una mejora de presentación: si falla, se reintentará con la próxima subida.
+      }
+    }, 600);
+  }, [eventId]);
 
   const fetchPhotos = useCallback(async (pageNum: number = 0, append: boolean = false) => {
     if (!eventId || fetchRef.current) return;
@@ -34,6 +82,7 @@ export function useGallery(eventId: string | null) {
       if (resp.ok) {
         const { photos: data } = await resp.json();
         if (data) {
+          cacheGuestNames(data);
           if (append) {
             setPhotos((prev) => {
               const existingIds = new Set(prev.map((p) => p.id));
@@ -60,7 +109,7 @@ export function useGallery(eventId: string | null) {
       setLoading(false);
       fetchRef.current = false;
     }
-  }, [eventId]);
+  }, [eventId, cacheGuestNames]);
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {
@@ -75,6 +124,7 @@ export function useGallery(eventId: string | null) {
       setHasMore(false);
       setPage(0);
       receivedIdsRef.current = new Set();
+      guestNamesRef.current = new Map();
       return;
     }
 
@@ -83,6 +133,7 @@ export function useGallery(eventId: string | null) {
     setHasMore(false);
     setPage(0);
     receivedIdsRef.current = new Set();
+    guestNamesRef.current = new Map();
     fetchPhotos(0, false);
   }, [eventId, fetchPhotos]);
 
@@ -108,10 +159,23 @@ export function useGallery(eventId: string | null) {
           if (receivedIdsRef.current.has(photoId)) return;
           receivedIdsRef.current.add(photoId);
 
+          // El payload de Realtime no trae el nombre del invitado: se resuelve
+          // desde la caché y, si aún no se conoce, se consulta en segundo plano.
+          const guestDisplayName =
+            guestNamesRef.current.get(newPhoto.guest_id) ||
+            newPhoto.guest_profiles?.display_name ||
+            null;
+          if (guestDisplayName) {
+            guestNamesRef.current.set(newPhoto.guest_id, guestDisplayName);
+          } else if (newPhoto.guest_id) {
+            pendingGuestIdsRef.current.add(newPhoto.guest_id);
+            resolveMissingGuestNames();
+          }
+
           setPhotos((prev) => {
             const photo: Photo = {
               ...newPhoto,
-              guest_display_name: newPhoto.guest_profiles?.display_name || null,
+              guest_display_name: guestDisplayName,
             };
             return [photo, ...prev];
           });
@@ -151,13 +215,16 @@ export function useGallery(eventId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [eventId]);
+  }, [eventId, resolveMissingGuestNames]);
 
-  // Cleanup observer on unmount
+  // Cleanup observer and pending name resolution on unmount
   useEffect(() => {
     return () => {
       if (observerRef.current) {
         observerRef.current.disconnect();
+      }
+      if (resolveTimerRef.current) {
+        clearTimeout(resolveTimerRef.current);
       }
     };
   }, []);
