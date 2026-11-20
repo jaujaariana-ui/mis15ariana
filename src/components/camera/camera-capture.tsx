@@ -13,6 +13,9 @@ function getOrientation(): 'portrait' | 'landscape' {
   return screen.orientation.type.includes('portrait') ? 'portrait' : 'landscape';
 }
 
+// Configurable delay to allow Android to release the camera hardware between switches
+const CAMERA_RELEASE_DELAY = 700;
+
 export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -25,69 +28,86 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
 
-  const stopCurrentStream = useCallback(() => {
+  // Lock: prevents concurrent camera switches
+  const switchingRef = useRef(false);
+  // Request ID: discards stale getUserMedia responses from older init calls
+  const requestIdRef = useRef(0);
+
+  // Completely release the current camera: stop all tracks, pause video, null srcObject, clear ref
+  const releaseCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error al detener track:', e);
+        }
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
+      videoRef.current.pause();
       videoRef.current.srcObject = null;
     }
   }, []);
 
-  const startCamera = useCallback(async () => {
+  // Start camera with a unique request ID to avoid stale responses
+  const startCamera = useCallback(async (targetFacingMode: 'user' | 'environment') => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
-
-    // Stop any existing stream first
-    stopCurrentStream();
 
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facingMode,
+          facingMode: targetFacingMode,
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },
         audio: false,
       });
 
+      // Discard if a newer request has already started
+      if (requestId !== requestIdRef.current) return;
+
       streamRef.current = mediaStream;
-      
-      // Wait for the video element to be ready and play
-      // iOS Safari requires multiple attempts and a delay after setting srcObject
+
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        
+
         // Try to play with multiple retries for iOS compatibility
         let played = false;
         for (let attempt = 0; attempt < 5 && !played; attempt++) {
           if (attempt > 0) {
             await new Promise(resolve => setTimeout(resolve, 200 * attempt));
           }
+          // Discard if superseded
+          if (requestId !== requestIdRef.current) return;
           try {
             await videoRef.current.play();
             played = true;
           } catch (playErr) {
-            // Retry on play failure
             if (attempt === 4) {
               console.warn('Failed to play video after 5 attempts:', playErr);
             }
           }
         }
-        
+
         // If still not playing, try loading then playing
         if (!played && videoRef.current) {
           try {
             await videoRef.current.load();
             await new Promise(resolve => setTimeout(resolve, 300));
-            await videoRef.current!.play();
+            if (requestId !== requestIdRef.current) return;
+            await videoRef.current.play();
           } catch (e) {
             console.warn('Final play attempt failed:', e);
           }
         }
       }
     } catch (err) {
+      // Only update error if this is still the latest request
+      if (requestId !== requestIdRef.current) return;
       const message =
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Permiso de cámara denegado. Por favor, permite el acceso a la cámara en la configuración de tu navegador.'
@@ -98,36 +118,34 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           : 'No se pudo acceder a la cámara. Intenta seleccionar fotos desde la galería.';
       setError(message);
     } finally {
-      setLoading(false);
+      // Only update loading if this is still the latest request
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [facingMode, stopCurrentStream]);
+  }, []);
 
-  // Initialize camera when component mounts
+  // Initialize camera when component mounts — single initialization point
   useEffect(() => {
-    // Set initial orientation
     setOrientation(getOrientation());
-    
-    startCamera();
-    
+    startCamera('environment');
+
     return () => {
-      stopCurrentStream();
+      releaseCamera();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [startCamera, releaseCamera]);
 
   // Listen for orientation changes - allow device to rotate freely
   useEffect(() => {
     const handleOrientationChange = () => {
       setOrientation(getOrientation());
     };
-    
-    // Listen to screen orientation API
+
     if (typeof screen !== 'undefined' && screen.orientation) {
       screen.orientation.addEventListener('change', handleOrientationChange);
     }
-    
-    // Also listen to resize as fallback
     window.addEventListener('resize', handleOrientationChange);
-    
+
     return () => {
       if (typeof screen !== 'undefined' && screen.orientation) {
         screen.orientation.removeEventListener('change', handleOrientationChange);
@@ -145,28 +163,37 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     };
   }, [previewUrl]);
 
-  const switchCamera = useCallback(() => {
+  // Sequential camera switch: release current → wait → start new
+  const switchCamera = useCallback(async () => {
+    // Prevent concurrent switches
+    if (switchingRef.current) return;
+    switchingRef.current = true;
+
+    // Clear any captured photo
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
-    stopCurrentStream();
-    // Small delay to ensure the camera hardware is released before switching
-    setTimeout(() => {
-      setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-    }, 200);
-  }, [previewUrl, stopCurrentStream]);
 
-  // Restart camera when facing mode changes
-  useEffect(() => {
-    // Increased delay to ensure the previous camera hardware is fully released
-    // Android needs more time to switch between front and rear cameras
-    const timer = setTimeout(() => {
-      startCamera();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [facingMode, startCamera]);
+    // Determine the new facing mode
+    const newMode = facingMode === 'user' ? 'environment' : 'user';
+
+    // Step 1: Fully release the current camera
+    releaseCamera();
+
+    // Step 2: Update facing mode state
+    setFacingMode(newMode);
+
+    // Step 3: Wait for Android to release the hardware device
+    await new Promise(resolve => setTimeout(resolve, CAMERA_RELEASE_DELAY));
+
+    // Step 4: Start the new camera with a single request
+    startCamera(newMode);
+
+    // Step 5: Unlock
+    switchingRef.current = false;
+  }, [facingMode, previewUrl, releaseCamera, startCamera]);
 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -232,8 +259,8 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
     }
     setPreviewUrl(null);
     setCapturedBlob(null);
-    startCamera();
-  }, [previewUrl, startCamera]);
+    startCamera(facingMode);
+  }, [previewUrl, startCamera, facingMode]);
 
   const handleCancel = useCallback(() => {
     if (streamRef.current) {
@@ -251,7 +278,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   }, []);
 
   useEffect(() => {
-    if (countdown === null || countdown === 0) return;
+    if (countdown === null) return;
     if (countdown === 0) {
       capturePhoto();
       setCountdown(null);
