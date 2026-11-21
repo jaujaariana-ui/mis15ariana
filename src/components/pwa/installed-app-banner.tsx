@@ -3,6 +3,22 @@
 import { useEffect, useState } from 'react';
 import { isStandaloneDisplay, isIOSDevice } from '@/lib/pwa';
 
+const INSTALLED_KEY = 'xalt:pwa-installed-previous';
+const DISMISSED_KEY = 'xalt:installed-banner-dismissed';
+
+function checkAndShow() {
+  // Si ya está en modo standalone (app instalada y abierta), no mostrar nada
+  if (isStandaloneDisplay()) return false;
+
+  let wasInstalled = false;
+  try {
+    wasInstalled = localStorage.getItem(INSTALLED_KEY) === '1';
+  } catch {
+    // Almacenamiento no disponible
+  }
+  return wasInstalled;
+}
+
 export default function InstalledAppBanner() {
   const [showBanner, setShowBanner] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -11,25 +27,27 @@ export default function InstalledAppBanner() {
     // Solo en el cliente
     setIsIOS(isIOSDevice());
 
-    // Si ya está en modo standalone (app instalada), no mostrar nada
-    if (isStandaloneDisplay()) {
-      return;
-    }
-
-    // Verificar si la app ya fue instalada anteriormente
-    const installedKey = 'xalt:pwa-installed-previous';
-    let wasInstalled = false;
-
-    try {
-      wasInstalled = localStorage.getItem(installedKey) === '1';
-    } catch {
-      // Almacenamiento no disponible
-    }
-
-    // Si la app ya fue instalada antes y el usuario está en el navegador, mostrar el banner
-    if (wasInstalled) {
+    // Verificación inicial: si ya instaló antes y vuelve al navegador
+    if (checkAndShow()) {
       setShowBanner(true);
     }
+
+    // Escuchar el evento de instalación para mostrar el banner automáticamente
+    // sin necesidad de refresh
+    const handleAppInstalled = () => {
+      // Pequeño delay para que el navegador complete la transición
+      setTimeout(() => {
+        if (checkAndShow()) {
+          setShowBanner(true);
+        }
+      }, 500);
+    };
+
+    window.addEventListener('xalt:appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('xalt:appinstalled', handleAppInstalled);
+    };
   }, []);
 
   const handleDismiss = () => {
