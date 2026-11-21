@@ -187,10 +187,11 @@ export function useGallery(eventId: string | null) {
           event: 'UPDATE',
           schema: 'public',
           table: 'photos',
+          filter: `event_id=eq.${eventId}`,
         },
         (payload) => {
           const updated = payload.new as any;
-          if (updated.event_id === eventId && updated.deleted_at) {
+          if (updated.deleted_at) {
             receivedIdsRef.current.delete(updated.id);
             setPhotos((prev) => prev.filter((p) => p.id !== updated.id));
           }
