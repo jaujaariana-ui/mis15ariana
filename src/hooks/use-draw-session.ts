@@ -127,34 +127,53 @@ export function useDrawSession(eventId: string | null) {
     };
   }, [eventId, fetchSession]);
 
-  // Controlar el sonido del juego cuando drawing cambia
+  // Inicializar el elemento de audio una sola vez
   useEffect(() => {
-    if (drawing) {
-      // Iniciar reproducción del sonido
-      if (!audioRef.current) {
-        audioRef.current = new Audio('/musicajuego.mp3');
-        audioRef.current.loop = true;
-        audioRef.current.volume = 0.5;
-      }
-      audioRef.current.play().catch((err) => {
-        console.warn('Error al reproducir el sonido del juego:', err);
-      });
-    } else {
-      // Detener reproducción del sonido
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/musicajuego.mp3');
+      audioRef.current.loop = true;
+      audioRef.current.volume = 0.5;
     }
-
-    // Cleanup al desmontar
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
       }
     };
-  }, [drawing]);
+  }, []);
+
+  // Función para reproducir el audio — debe llamarse desde un gesto del usuario (click/touch)
+  const playAudio = useCallback(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/musicajuego.mp3');
+      audioRef.current.loop = true;
+      audioRef.current.volume = 0.5;
+    }
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch((err) => {
+      console.warn('Error al reproducir el sonido del juego:', err);
+    });
+  }, []);
+
+  // Función para detener el audio
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  // Fallback: intentar reproducir si drawing cambia (funciona en desktop)
+  useEffect(() => {
+    if (drawing) {
+      playAudio();
+    } else {
+      stopAudio();
+    }
+    return () => {
+      stopAudio();
+    };
+  }, [drawing, playAudio, stopAudio]);
 
   const startDraw = useCallback(async (animationDurationMs?: number) => {
     if (!eventId) return null;
@@ -219,5 +238,7 @@ export function useDrawSession(eventId: string | null) {
     fetchParticipants,
     startDraw,
     finishDraw,
+    playAudio,
+    stopAudio,
   };
 }

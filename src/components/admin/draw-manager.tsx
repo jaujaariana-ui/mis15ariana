@@ -22,6 +22,8 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     startDraw,
     finishDraw,
     fetchSession,
+    playAudio,
+    stopAudio,
   } = useDrawSession(eventId);
 
   const [starting, setStarting] = useState(false);
@@ -37,6 +39,8 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
   }, [session, participants]);
 
   const handleStartDraw = useCallback(async () => {
+    // Reproducir audio dentro del gesto del usuario (requerido en móviles)
+    playAudio();
     setStarting(true);
     setError(null);
 
@@ -54,15 +58,17 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     } finally {
       setStarting(false);
     }
-  }, [startDraw]);
+  }, [startDraw, playAudio]);
 
   const handleFinishDraw = useCallback(async () => {
+    // Detener audio dentro del gesto del usuario
+    stopAudio();
     try {
       await finishDraw();
     } catch (err: any) {
       setError(err.message || 'Error al finalizar el sorteo');
     }
-  }, [finishDraw]);
+  }, [finishDraw, stopAudio]);
 
   const avatarColors = [
     'bg-purple-500', 'bg-blue-500', 'bg-green-500',
