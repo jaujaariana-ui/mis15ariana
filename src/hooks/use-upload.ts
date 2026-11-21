@@ -15,6 +15,36 @@ export interface UploadState {
   error: string | null;
 }
 
+// Subidas simultáneas por invitado. Secuencial (1) hacía esperar N veces por N
+// fotos; ilimitado saturaría la red compartida del evento. Dos reduce la espera
+// percibida sin crear picos de tráfico.
+const UPLOAD_CONCURRENCY = 2;
+const SIGN_TIMEOUT_MS = 15_000;
+const UPLOAD_TIMEOUT_MS = 30_000;
+const REGISTER_TIMEOUT_MS = 15_000;
+
+// Evita que una petición colgada bloquee la cola de subida en redes inestables.
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function describeFetchError(err: unknown, fallback: string): string {
+  if (err instanceof DOMException && err.name === 'AbortError') {
+    return 'La conexión tardó demasiado';
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
 export function useUpload(eventId: string, guestId: string) {
   const [state, setState] = useState<UploadState>({
     uploading: false,
@@ -68,16 +98,20 @@ export function useUpload(eventId: string, guestId: string) {
           await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
         try {
-          const uploadUrlResponse = await fetch('/api/photos/upload-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              event_id: eventId,
-              guest_id: guestId,
-              mime_type: compressed.mimeType,
-              original_filename: file.name,
-            }),
-          });
+          const uploadUrlResponse = await fetchWithTimeout(
+            '/api/photos/upload-url',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event_id: eventId,
+                guest_id: guestId,
+                mime_type: compressed.mimeType,
+                original_filename: file.name,
+              }),
+            },
+            SIGN_TIMEOUT_MS
+          );
 
           if (!uploadUrlResponse.ok) {
             const errorData = await uploadUrlResponse.json().catch(() => ({}));
@@ -94,7 +128,7 @@ export function useUpload(eventId: string, guestId: string) {
           break;
         } catch (err) {
           if (attempt === 2) {
-            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de conexión');
+            updateItemStatus(itemId, 'error', 0, describeFetchError(err, 'Error de conexión'));
             return false;
           }
         }
@@ -126,10 +160,14 @@ export function useUpload(eventId: string, guestId: string) {
           formData.append('public_id', publicId);
           formData.append('resource_type', 'image');
 
-          const uploadResponse = await fetch(uploadUrl, {
-            method: 'POST',
-            body: formData,
-          });
+          const uploadResponse = await fetchWithTimeout(
+            uploadUrl,
+            {
+              method: 'POST',
+              body: formData,
+            },
+            UPLOAD_TIMEOUT_MS
+          );
 
           if (!uploadResponse.ok) {
             const errorText = await uploadResponse.text();
@@ -145,7 +183,7 @@ export function useUpload(eventId: string, guestId: string) {
           break;
         } catch (err) {
           if (attempt === 2) {
-            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de red');
+            updateItemStatus(itemId, 'error', 0, describeFetchError(err, 'Error de red'));
             return false;
           }
         }
@@ -164,20 +202,24 @@ export function useUpload(eventId: string, guestId: string) {
           await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
         try {
-          const registerResponse = await fetch('/api/photos/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              event_id: eventId,
-              guest_id: guestId,
-              storage_key: secureUrl, // Store the full Cloudinary URL
-              original_filename: file.name,
-              mime_type: compressed.mimeType,
-              file_size: compressed.blob.size,
-              width: compressed.width,
-              height: compressed.height,
-            }),
-          });
+          const registerResponse = await fetchWithTimeout(
+            '/api/photos/upload',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event_id: eventId,
+                guest_id: guestId,
+                storage_key: secureUrl, // Store the full Cloudinary URL
+                original_filename: file.name,
+                mime_type: compressed.mimeType,
+                file_size: compressed.blob.size,
+                width: compressed.width,
+                height: compressed.height,
+              }),
+            },
+            REGISTER_TIMEOUT_MS
+          );
 
           if (!registerResponse.ok) {
             const errorData = await registerResponse.json().catch(() => ({}));
@@ -187,7 +229,7 @@ export function useUpload(eventId: string, guestId: string) {
           break;
         } catch (err) {
           if (attempt === 2) {
-            updateItemStatus(itemId, 'error', 0, err instanceof Error ? err.message : 'Error de registro');
+            updateItemStatus(itemId, 'error', 0, describeFetchError(err, 'Error de registro'));
             return false;
           }
         }
@@ -225,34 +267,52 @@ export function useUpload(eventId: string, guestId: string) {
 
       let completed = 0;
       let failed = 0;
+      let cursor = 0;
 
-      // Upload files sequentially to avoid overwhelming the browser or server
-      // with concurrent requests. With 20+ users, this prevents thundering herd.
-      for (let i = 0; i < files.length; i++) {
-        const item = newItems[i];
-        const success = await uploadSingleFile(files[i], item.id, item.previewUrl);
+      // Subida con concurrencia limitada. Antes era estrictamente secuencial, lo
+      // que hacía esperar N veces por N fotos; ahora se procesan hasta 2 a la vez
+      // por invitado, reduciendo la espera percibida sin saturar la red del evento.
+      const runWorker = async () => {
+        while (cursor < files.length) {
+          const index = cursor++;
+          const item = newItems[index];
+          const success = await uploadSingleFile(files[index], item.id, item.previewUrl);
 
-        if (success) {
-          completed++;
-        } else {
-          failed++;
+          if (success) {
+            completed++;
+          } else {
+            failed++;
+          }
+
+          const doneCount = completed + failed;
+          setState((prev) => ({
+            ...prev,
+            completed: doneCount,
+            failed,
+            progress: (doneCount / files.length) * 100,
+          }));
         }
+      };
 
-        const doneCount = completed + failed;
+      const workerCount = Math.min(UPLOAD_CONCURRENCY, files.length);
+      await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+      if (failed > 0) {
+        const finishedCount = completed + failed;
         setState((prev) => ({
           ...prev,
-          completed: doneCount,
-          failed,
-          progress: (doneCount / prev.total) * 100,
+          uploading: false,
+          progress: (finishedCount / files.length) * 100,
+          error: `${failed} foto(s) no se pudieron subir`,
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          uploading: false,
+          progress: 100,
+          error: null,
         }));
       }
-
-      setState((prev) => ({
-        ...prev,
-        uploading: false,
-        progress: 100,
-        error: failed > 0 ? `${failed} foto(s) no se pudieron subir` : null,
-      }));
     },
     [uploadSingleFile]
   );
@@ -297,7 +357,12 @@ export function useUpload(eventId: string, guestId: string) {
   );
 
   const clearItems = useCallback(() => {
-    setItems([]);
+    setItems((prev) => {
+      // Libera los object URLs de previsualización para evitar fugas de memoria
+      // cuando un invitado sube muchas fotos en una sola sesión.
+      prev.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      return [];
+    });
     setState({
       uploading: false,
       progress: 0,

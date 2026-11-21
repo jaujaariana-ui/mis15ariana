@@ -8,73 +8,73 @@ export interface CompressedImage {
   mimeType: string;
 }
 
-export async function compressImage(file: File): Promise<CompressedImage> {
+function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
-
-      // Resize to max dimension
-      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-        if (width > height) {
-          height = (height / width) * MAX_DIMENSION;
-          width = MAX_DIMENSION;
-        } else {
-          width = (width / height) * MAX_DIMENSION;
-          height = MAX_DIMENSION;
-        }
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('No se pudo obtener el contexto del canvas'));
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Try WebP first, fallback to JPEG
-      const mimeType = 'image/webp';
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            resolve({
-              blob,
-              width: Math.round(width),
-              height: Math.round(height),
-              mimeType,
-            });
-          } else {
-            // Fallback to JPEG
-            canvas.toBlob(
-              (jpegBlob) => {
-                if (jpegBlob) {
-                  resolve({
-                    blob: jpegBlob,
-                    width: Math.round(width),
-                    height: Math.round(height),
-                    mimeType: 'image/jpeg',
-                  });
-                } else {
-                  reject(new Error('No se pudo comprimir la imagen'));
-                }
-              },
-              'image/jpeg',
-              QUALITY
-            );
-          }
-        },
-        mimeType,
-        QUALITY
-      );
-    };
-
+    img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
-    img.src = URL.createObjectURL(file);
+    img.src = src;
   });
+}
+
+function encode(canvas: HTMLCanvasElement, mimeType: string): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mimeType, QUALITY);
+  });
+}
+
+export async function compressImage(file: File): Promise<CompressedImage> {
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const img = await loadImage(objectUrl);
+
+    let width = img.width;
+    let height = img.height;
+
+    // Resize to max dimension
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+      if (width > height) {
+        height = (height / width) * MAX_DIMENSION;
+        width = MAX_DIMENSION;
+      } else {
+        width = (width / height) * MAX_DIMENSION;
+        height = MAX_DIMENSION;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width);
+    canvas.height = Math.round(height);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('No se pudo obtener el contexto del canvas');
+    }
+
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // WebP suele pesar ~40% menos, pero no todos los navegadores lo codifican
+    // (Safari y algunos WebViews devuelven PNG ignorando el formato pedido). Un
+    // PNG de 1920px puede pesar hasta 10x más que el original, así que verificamos
+    // el tipo REAL del blob y, si no es WebP, preferimos JPEG antes que subir un PNG
+    // gigante. Se reporta el tipo real para no registrar un mime_type incorrecto.
+    let blob = await encode(canvas, 'image/webp');
+    if (!blob || blob.type !== 'image/webp') {
+      blob = await encode(canvas, 'image/jpeg');
+    }
+    if (!blob) {
+      throw new Error('No se pudo comprimir la imagen');
+    }
+
+    return {
+      blob,
+      width: canvas.width,
+      height: canvas.height,
+      mimeType: blob.type === 'image/webp' ? 'image/webp' : 'image/jpeg',
+    };
+  } finally {
+    // Libera el objeto URL para evitar fugas de memoria al subir muchas fotos.
+    URL.revokeObjectURL(objectUrl);
+  }
 }

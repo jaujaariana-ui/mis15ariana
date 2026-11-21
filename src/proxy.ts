@@ -4,16 +4,47 @@ import { updateSession } from '@/lib/supabase/proxy';
 // In-memory rate limiting store
 const rateLimitStore = new Map<string, { count: number; reset: number }>();
 
+// Límites por identidad (invitado/organizador), NO por IP. En un evento los
+// invitados comparten la misma IP pública (NAT del WiFi del salón), por lo que
+// un límite por IP los hacía competir por una sola cuota. Cada foto consume dos
+// peticiones (upload-url + upload), así que `upload` a 40/min permite ~20 fotos
+// por minuto y por invitado, mientras que cada invitado tiene su propio cupo.
 const RATE_LIMIT_CONFIGS = {
-  upload: { maxRequests: 10, windowMs: 60_000 },
-  download: { maxRequests: 30, windowMs: 60_000 },
-  api: { maxRequests: 60, windowMs: 60_000 },
+  upload: { maxRequests: 40, windowMs: 60_000 },
+  download: { maxRequests: 60, windowMs: 60_000 },
+  api: { maxRequests: 120, windowMs: 60_000 },
 };
 
+// Hash corto y estable para no guardar tokens JWT completos como clave.
+function hashKey(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function getRateLimitKey(request: NextRequest, action: string) {
-  const ip = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? 'unknown';
-  const ipHash = Buffer.from(ip).toString('base64');
-  return `${action}:${ipHash}`;
+  // 1) Identidad del invitado (cookie HTTP-only). Cada invitado tiene la suya.
+  const guestToken = request.cookies.get('xalt_guest_token')?.value;
+  if (guestToken) {
+    return `${action}:guest:${hashKey(guestToken)}`;
+  }
+
+  // 2) Sesión del organizador (Supabase), para no mezclar admins con invitados.
+  const authCookie = request.cookies
+    .getAll()
+    .find((cookie) => cookie.name.startsWith('sb-') && cookie.name.endsWith('-auth-token'));
+  if (authCookie?.value) {
+    return `${action}:auth:${hashKey(authCookie.value)}`;
+  }
+
+  // 3) Sin identidad: se cae a IP (solo aplica a rutas no autenticadas).
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    request.headers.get('x-real-ip') ??
+    'unknown';
+  return `${action}:ip:${hashKey(ip)}`;
 }
 
 function checkRateLimit(key: string, config: { maxRequests: number; windowMs: number }) {
