@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getOrCreateGuestProfile } from '@/services/guest.service';
+import { getOrCreateGuestProfile, displayNameExists } from '@/services/guest.service';
 import { v4 as uuidv4 } from 'uuid';
 import { generateGuestToken, verifyGuestToken, getGuestCookieOptions, GUEST_COOKIE_NAME } from '@/lib/guest-token';
 
@@ -62,14 +62,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const trimmedName = display_name.trim();
     const adminClient = createAdminClient();
+
+    // Check if this display name already exists for the event
+    const exists = await displayNameExists(adminClient, trimmedName, event_id);
+    if (exists) {
+      return NextResponse.json(
+        { error: 'Este nombre ya está en uso. Elige otro nombre.' },
+        { status: 409 }
+      );
+    }
 
     // Generate a local UUID instead of creating a Supabase Auth user
     const authUserId = uuidv4();
 
     // Create the guest profile directly in the database
     const profile = await getOrCreateGuestProfile(adminClient, authUserId, {
-      display_name: display_name.trim(),
+      display_name: trimmedName,
       event_id,
     });
 

@@ -1,6 +1,20 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { GuestProfile, CreateGuestProfileInput } from '@/types/guest.types';
 
+export async function displayNameExists(
+  supabase: SupabaseClient,
+  displayName: string,
+  eventId: string
+): Promise<boolean> {
+  const { count } = await supabase
+    .from('guest_profiles')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .ilike('display_name', displayName);
+
+  return (count || 0) > 0;
+}
+
 export async function getOrCreateGuestProfile(
   supabase: SupabaseClient,
   authUserId: string,
