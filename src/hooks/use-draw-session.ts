@@ -11,6 +11,7 @@ export function useDrawSession(eventId: string | null) {
   const [loading, setLoading] = useState(true);
   const [drawing, setDrawing] = useState(false);
   const fetchRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const fetchSession = useCallback(async () => {
     if (!eventId || fetchRef.current) return;
@@ -125,6 +126,35 @@ export function useDrawSession(eventId: string | null) {
       supabase.removeChannel(channel);
     };
   }, [eventId, fetchSession]);
+
+  // Controlar el sonido del juego cuando drawing cambia
+  useEffect(() => {
+    if (drawing) {
+      // Iniciar reproducción del sonido
+      if (!audioRef.current) {
+        audioRef.current = new Audio('/musicajuego.mp3');
+        audioRef.current.loop = true;
+        audioRef.current.volume = 0.5;
+      }
+      audioRef.current.play().catch((err) => {
+        console.warn('Error al reproducir el sonido del juego:', err);
+      });
+    } else {
+      // Detener reproducción del sonido
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    }
+
+    // Cleanup al desmontar
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    };
+  }, [drawing]);
 
   const startDraw = useCallback(async (animationDurationMs?: number) => {
     if (!eventId) return null;
