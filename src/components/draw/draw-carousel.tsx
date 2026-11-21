@@ -123,13 +123,15 @@ export default function DrawCarousel({
       const cardW = cardWidthRef.current;
       const singleSetWidth = participants.length * cardW;
 
-      // Calcular la posición donde el ganador está en el centro
-      // El centro del carrusel visible es el centro del contenedor
-      // Queremos que la tarjeta del ganador esté centrada
-      const targetOffset = -(winnerIdx * cardW);
+      // Calcular la posición donde el ganador está en el centro del contenedor visible
+      // El contenedor tiene ancho de viewport; el centro está en viewportWidth / 2
+      // La tarjeta del ganador debe estar centrada: offset = -(winnerIdx * cardW) + (viewportCenter - cardW/2)
+      const containerEl = trackRef.current?.parentElement;
+      const containerWidth = containerEl?.offsetWidth || window.innerWidth;
+      const centerOffset = (containerWidth - cardW) / 2;
 
-      // Ajustar para que esté en el set central (segunda copia)
-      let adjustedTarget = targetOffset - singleSetWidth;
+      // Usar la segunda copia (set central) para que haya espacio para desacelerar
+      const targetOffset = -(winnerIdx * cardW) + centerOffset - singleSetWidth;
 
       // Desaceleración progresiva
       let currentSpeed = speed;
@@ -138,7 +140,7 @@ export default function DrawCarousel({
 
         if (currentSpeed < 0.5) {
           // Detener exactamente en el ganador
-          offsetRef.current = adjustedTarget;
+          offsetRef.current = targetOffset;
           const track = trackRef.current;
           if (track) {
             track.style.transform = `translateX(${offsetRef.current}px)`;
@@ -151,9 +153,9 @@ export default function DrawCarousel({
         }
 
         // Mover hacia el objetivo
-        const diff = adjustedTarget - offsetRef.current;
+        const diff = targetOffset - offsetRef.current;
         if (Math.abs(diff) < currentSpeed) {
-          offsetRef.current = adjustedTarget;
+          offsetRef.current = targetOffset;
         } else {
           offsetRef.current += Math.sign(diff) * currentSpeed;
         }
