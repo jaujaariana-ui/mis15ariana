@@ -1,5 +1,5 @@
-const MAX_DIMENSION = 1920;
-const QUALITY = 0.8;
+const MAX_DIMENSION = 4096;
+const QUALITY = 0.9;
 
 export interface CompressedImage {
   blob: Blob;
@@ -21,6 +21,24 @@ function encode(canvas: HTMLCanvasElement, mimeType: string): Promise<Blob | nul
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), mimeType, QUALITY);
   });
+}
+
+export interface ImageSize {
+  width: number;
+  height: number;
+}
+
+// Mide las dimensiones reales de un blob sin recomprimir ni tocar sus píxeles.
+// Se usa para archivos ya optimizados (p. ej. capturas de cámara), que no
+// necesitan pasar por el canvas para no perder calidad ni gastar CPU.
+export async function readImageSize(file: Blob): Promise<ImageSize> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(objectUrl);
+    return { width: img.width, height: img.height };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export async function compressImage(file: File): Promise<CompressedImage> {

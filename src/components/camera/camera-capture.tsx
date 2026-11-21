@@ -15,6 +15,12 @@ function getOrientation(): 'portrait' | 'landscape' {
 
 // Configurable delay to allow Android to release the camera hardware between switches
 const CAMERA_RELEASE_DELAY = 700;
+// Ancho objetivo al solicitar la cámara. Se pide el máximo razonable del sensor
+// (ideal, no exact, para no fallar en dispositivos que no lo soportan); el
+// navegador elige el modo más cercano conservando la relación de aspecto.
+const MAX_CAPTURE_WIDTH = 4096;
+// Calidad del JPEG capturado. Alto para no degradar la imagen en la captura.
+const CAPTURE_JPEG_QUALITY = 0.95;
 // Max time to wait for video metadata + real (non-zero) dimensions
 const VIDEO_READY_TIMEOUT = 8000;
 // Max time to wait for the <video> element to be mounted
@@ -157,14 +163,34 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
       let mediaStream: MediaStream | null = null;
       try {
+        // Se pide el ancho máximo del sensor (ideal) para no capturar por debajo
+        // de la resolución nativa del dispositivo.
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: targetFacingMode,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: MAX_CAPTURE_WIDTH },
           },
           audio: false,
         });
+
+        // Segundo intento: subir a la máxima resolución que declare el propio
+        // track. `getCapabilities().width.max` es la mejor referencia del máximo
+        // soportado por el hardware. Cualquier fallo se ignora (algunos
+        // dispositivos rechazan applyConstraints) y se conserva el stream obtenido.
+        const videoTrack = mediaStream.getVideoTracks()[0];
+        const capabilities = videoTrack?.getCapabilities?.() as
+          | { width?: { max?: number }; height?: { max?: number } }
+          | undefined;
+        if (videoTrack && capabilities?.width?.max && capabilities?.height?.max) {
+          try {
+            await videoTrack.applyConstraints({
+              width: { ideal: capabilities.width.max },
+              height: { ideal: capabilities.height.max },
+            });
+          } catch (constraintErr) {
+            console.warn('No se pudo aplicar la resolución máxima de la cámara:', constraintErr);
+          }
+        }
       } catch (err) {
         // Only surface the error if this is still the latest request
         if (requestId !== requestIdRef.current) return;
@@ -373,7 +399,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
         }
       },
       'image/jpeg',
-      0.9
+      CAPTURE_JPEG_QUALITY
     );
   }, [facingMode, orientation]);
 

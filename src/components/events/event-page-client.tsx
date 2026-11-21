@@ -72,7 +72,9 @@ export default function EventPageClient({ event }: Props) {
   const handleCameraCapture = useCallback(async (blob: Blob) => {
     setCameraOpen(false);
     const file = new File([blob], `capture-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    await uploadFiles([file]);
+    // La captura ya viene codificada a resolución nativa por la cámara: se sube
+    // tal cual para no degradarla con una segunda compresión.
+    await uploadFiles([file], { preOptimized: true });
   }, [uploadFiles]);
 
   const handleCameraCancel = useCallback(() => {

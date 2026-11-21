@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { compressImage } from '@/utils/image-compression';
+import { compressImage, readImageSize } from '@/utils/image-compression';
 import { validateFile } from '@/lib/security/file-validator';
 import { PhotoUploadItem } from '@/components/upload/upload-progress';
 
@@ -13,6 +13,13 @@ export interface UploadState {
   completed: number;
   failed: number;
   error: string | null;
+}
+
+export interface UploadOptions {
+  // Cuando el archivo ya viene optimizado (p. ej. la captura de cámara ya está
+  // codificada en JPEG a resolución nativa), se omite la recompresión para no
+  // perder calidad con una segunda generación ni gastar CPU en el canvas.
+  preOptimized?: boolean;
 }
 
 // Subidas simultáneas por invitado. Secuencial (1) hacía esperar N veces por N
@@ -67,7 +74,7 @@ export function useUpload(eventId: string, guestId: string) {
   }, []);
 
   const uploadSingleFile = useCallback(
-    async (file: File, itemId: string, previewUrl: string) => {
+    async (file: File, itemId: string, previewUrl: string, preOptimized = false) => {
       // Validate file
       const validation = await validateFile(file);
       if (!validation.valid) {
@@ -75,13 +82,23 @@ export function useUpload(eventId: string, guestId: string) {
         return false;
       }
 
-      // Compress image
+      // Prepare image: comprimir o medir sin recomprimir si ya viene optimizado
       updateItemStatus(itemId, 'compressing', 0);
       let compressed;
       try {
-        compressed = await compressImage(file);
+        if (preOptimized) {
+          const size = await readImageSize(file);
+          compressed = {
+            blob: file as Blob,
+            width: size.width,
+            height: size.height,
+            mimeType: file.type || 'image/jpeg',
+          };
+        } else {
+          compressed = await compressImage(file);
+        }
       } catch {
-        updateItemStatus(itemId, 'error', 0, 'Error al comprimir la imagen');
+        updateItemStatus(itemId, 'error', 0, 'Error al preparar la imagen');
         return false;
       }
 
@@ -246,7 +263,8 @@ export function useUpload(eventId: string, guestId: string) {
   );
 
   const uploadFiles = useCallback(
-    async (files: File[]) => {
+    async (files: File[], options?: UploadOptions) => {
+      const preOptimized = options?.preOptimized ?? false;
       const newItems: PhotoUploadItem[] = files.map((file, index) => ({
         id: `upload-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 7)}`,
         name: file.name,
@@ -276,7 +294,7 @@ export function useUpload(eventId: string, guestId: string) {
         while (cursor < files.length) {
           const index = cursor++;
           const item = newItems[index];
-          const success = await uploadSingleFile(files[index], item.id, item.previewUrl);
+          const success = await uploadSingleFile(files[index], item.id, item.previewUrl, preOptimized);
 
           if (success) {
             completed++;
