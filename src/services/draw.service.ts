@@ -1,0 +1,171 @@
+import { SupabaseClient } from '@supabase/supabase-js';
+import { DrawSession, DrawParticipant } from '@/types/draw.types';
+
+/**
+ * Obtener participantes elegibles para el sorteo.
+ * Solo incluyen invitados que han subido al menos una foto y no están bloqueados.
+ */
+export async function getEligibleParticipants(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<DrawParticipant[]> {
+  // 1. Obtener todos los guest_ids que tienen fotos activas (no eliminadas)
+  const { data: photosData, error: photosError } = await supabase
+    .from('photos')
+    .select('guest_id')
+    .eq('event_id', eventId)
+    .is('deleted_at', null);
+
+  if (photosError) {
+    console.error('Error obteniendo fotos:', photosError);
+    return [];
+  }
+
+  const guestsWithPhotos = new Set(photosData?.map(p => p.guest_id).filter(Boolean) || []);
+  if (guestsWithPhotos.size === 0) return [];
+
+  // 2. Obtener los guest_profiles que no están bloqueados y tienen fotos
+  const { data: guests, error: guestsError } = await supabase
+    .from('guest_profiles')
+    .select('id, display_name')
+    .eq('event_id', eventId)
+    .eq('is_blocked', false)
+    .in('id', Array.from(guestsWithPhotos));
+
+  if (guestsError) {
+    console.error('Error obteniendo invitados:', guestsError);
+    return [];
+  }
+
+  // 3. Contar fotos por guest
+  const participants: DrawParticipant[] = [];
+  for (const guest of guests || []) {
+    const { count } = await supabase
+      .from('photos')
+      .select('*', { count: 'exact', head: true })
+      .eq('guest_id', guest.id)
+      .eq('event_id', eventId)
+      .is('deleted_at', null);
+
+    participants.push({
+      id: guest.id,
+      display_name: guest.display_name,
+      photo_count: count || 0,
+    });
+  }
+
+  return participants;
+}
+
+/**
+ * Obtener la sesión activa de sorteo para un evento.
+ */
+export async function getActiveDrawSession(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<DrawSession | null> {
+  const { data, error } = await supabase
+    .from('draw_sessions')
+    .select('*')
+    .eq('event_id', eventId)
+    .in('status', ['pending', 'running'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
+
+/**
+ * Obtener la última sesión finalizada de sorteo para un evento.
+ */
+export async function getLatestFinishedDrawSession(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<DrawSession | null> {
+  const { data, error } = await supabase
+    .from('draw_sessions')
+    .select('*')
+    .eq('event_id', eventId)
+    .eq('status', 'finished')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
+
+/**
+ * Crear una nueva sesión de sorteo.
+ */
+export async function createDrawSession(
+  supabase: SupabaseClient,
+  eventId: string,
+  organizerId: string,
+  animationDurationMs: number = 5000
+): Promise<DrawSession> {
+  const { data, error } = await supabase
+    .from('draw_sessions')
+    .insert({
+      event_id: eventId,
+      created_by: organizerId,
+      status: 'pending',
+      animation_duration_ms: animationDurationMs,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Actualizar el estado de una sesión de sorteo.
+ */
+export async function updateDrawSession(
+  supabase: SupabaseClient,
+  sessionId: string,
+  updates: Partial<DrawSession>
+): Promise<DrawSession> {
+  const { data, error } = await supabase
+    .from('draw_sessions')
+    .update(updates)
+    .eq('id', sessionId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Seleccionar un ganador aleatorio de los participantes.
+ * Usa crypto.getRandomValues para selección criptográficamente segura.
+ */
+export function selectRandomWinner(participants: DrawParticipant[]): DrawParticipant | null {
+  if (participants.length === 0) return null;
+
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  const index = array[0] % participants.length;
+  return participants[index];
+}
+
+/**
+ * Obtener todas las sesiones de sorteo para un evento (historial).
+ */
+export async function getDrawSessionsHistory(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<DrawSession[]> {
+  const { data, error } = await supabase
+    .from('draw_sessions')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false });
+
+  if (error) return [];
+  return data || [];
+}

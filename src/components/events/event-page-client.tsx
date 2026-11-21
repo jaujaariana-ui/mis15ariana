@@ -20,6 +20,7 @@ import LoadingSkeleton from '@/components/shared/loading-skeleton';
 import ConsentModal from '@/components/shared/consent-modal';
 import OfflineBanner from '@/components/shared/offline-banner';
 import InstallPrompt from '@/components/pwa/install-prompt';
+import DrawTab from '@/components/draw/draw-tab';
 
 interface Props {
   event: Event;
@@ -31,6 +32,7 @@ export default function EventPageClient({ event }: Props) {
   const { items: uploadItems, uploadFiles, retryUpload, clearItems } = useUpload(event.id, guest?.id || '');
   const [showConsent, setShowConsent] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'gallery' | 'draw'>('gallery');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraKey, setCameraKey] = useState(0);
@@ -231,32 +233,65 @@ export default function EventPageClient({ event }: Props) {
           />
         )}
 
-        {/* Gallery Stats */}
-        {guest && photos.length > 0 && (
-          <div className="flex items-center justify-between mb-4 px-1">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
-              <p className="text-sm text-slate-500">
-                <span className="font-medium text-slate-700">{photos.length}</span> {photos.length === 1 ? 'fotografía' : 'fotografías'} compartidas
-              </p>
-            </div>
+        {/* Tabs: Galería / Sorteo */}
+        <div className="mb-6">
+          <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+            <button
+              onClick={() => setActiveTab('gallery')}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'gallery'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Galería
+            </button>
+            <button
+              onClick={() => setActiveTab('draw')}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'draw'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Sorteo
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* Gallery */}
-        {loading ? (
-          <LoadingSkeleton />
-        ) : photos.length === 0 ? (
-          <EmptyState guestJoined={!!guest} />
+        {/* Tab Content */}
+        {activeTab === 'gallery' ? (
+          <>
+            {/* Gallery Stats */}
+            {guest && photos.length > 0 && (
+              <div className="flex items-center justify-between mb-4 px-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                  <p className="text-sm text-slate-500">
+                    <span className="font-medium text-slate-700">{photos.length}</span> {photos.length === 1 ? 'fotografía' : 'fotografías'} compartidas
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Gallery */}
+            {loading ? (
+              <LoadingSkeleton />
+            ) : photos.length === 0 ? (
+              <EmptyState guestJoined={!!guest} />
+            ) : (
+              <GalleryGrid
+                photos={photos}
+                guestId={guest?.id}
+                onPhotoClick={handlePhotoClick}
+                onPhotoDelete={handleDeletePhoto}
+                onLoadMore={loadMore}
+                hasMore={hasMore}
+              />
+            )}
+          </>
         ) : (
-          <GalleryGrid
-            photos={photos}
-            guestId={guest?.id}
-            onPhotoClick={handlePhotoClick}
-            onPhotoDelete={handleDeletePhoto}
-            onLoadMore={loadMore}
-            hasMore={hasMore}
-          />
+          <DrawTab eventId={event.id} />
         )}
       </main>
 

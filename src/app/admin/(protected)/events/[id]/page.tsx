@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { formatRelativeTime } from '@/utils/date-formatter';
 import PhotoManager from '@/components/admin/photo-manager';
 import GuestManager from '@/components/admin/guest-manager';
+import DrawManager from '@/components/admin/draw-manager';
 import QRGenerator from '@/components/events/qr-generator';
 import { DeleteEventDialog } from '@/components/admin/delete-event-dialog';
 import CoverImageManager from '@/components/admin/cover-image-manager';
@@ -160,6 +161,7 @@ export default async function AdminEventDetail({ params }: Props) {
       </div>
 
       <div className="space-y-6">
+        <DrawManager eventId={event.id} />
         <PhotoManager eventId={event.id} />
         <GuestManager eventId={event.id} />
       </div>
