@@ -46,6 +46,22 @@ export default function DrawTab({ eventId }: DrawTabProps) {
     }
   }, [winners.length, showModal]);
 
+  // Cuando empieza un nuevo sorteo (drawing = true), cerrar el modal del ganador anterior
+  useEffect(() => {
+    if (drawing && showModal) {
+      setShowModal(false);
+      setWinner(null);
+    }
+  }, [drawing, showModal]);
+
+  // Cuando la sesión cambia de 'finished' a 'running' (nueva sesión), cerrar el modal
+  useEffect(() => {
+    if (session?.status === 'running' && showModal) {
+      setShowModal(false);
+      setWinner(null);
+    }
+  }, [session?.status, showModal]);
+
   const handleModalClose = useCallback(() => {
     setShowModal(false);
   }, []);
