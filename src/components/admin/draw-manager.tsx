@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { DrawParticipant } from '@/types/draw.types';
+import { DrawParticipant, DrawWinner } from '@/types/draw.types';
 
 interface DrawManagerProps {
   eventId: string;
@@ -17,10 +17,12 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     session,
     activeSession,
     participants,
+    winners,
     loading,
     drawing,
     startDraw,
     finishDraw,
+    clearWinners,
     fetchSession,
     playAudio,
     stopAudio,
@@ -39,6 +41,14 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
   }, [session, participants]);
 
   const handleStartDraw = useCallback(async () => {
+    // Si ya hay ganadores acumulados, resetear el historial antes de iniciar
+    if (winners.length > 0) {
+      try {
+        await clearWinners();
+      } catch (err) {
+        console.error('Error al resetear ganadores:', err);
+      }
+    }
     // Reproducir audio dentro del gesto del usuario (requerido en móviles)
     playAudio();
     setStarting(true);
@@ -58,7 +68,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     } finally {
       setStarting(false);
     }
-  }, [startDraw, playAudio]);
+  }, [startDraw, playAudio, clearWinners, winners]);
 
   const handleFinishDraw = useCallback(async () => {
     // Detener audio dentro del gesto del usuario
@@ -130,7 +140,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
           </div>
           <div className="bg-slate-50 rounded-xl p-4 text-center">
             <p className="text-2xl font-bold text-slate-900">
-              {session?.status === 'finished' ? '1' : '0'}
+              {winners.length}
             </p>
             <p className="text-sm text-slate-500">Sorteos realizados</p>
           </div>
@@ -251,6 +261,43 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
           <div className="text-center py-8 text-slate-400">
             <p className="text-sm">Aún no hay participantes elegibles</p>
             <p className="text-xs mt-1">Los invitados deben subir al menos una foto</p>
+          </div>
+        )}
+
+        {/* Sorteos Realizados - Historial de ganadores */}
+        {winners.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium text-slate-700 mb-3">
+              🏆 Sorteos Realizados ({winners.length})
+            </h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {winners.map((win, index) => (
+                <div
+                  key={win.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-100"
+                >
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">{index + 1}</span>
+                  </div>
+                  <Avatar className="w-10 h-10 flex-shrink-0">
+                    <AvatarFallback className="text-white text-sm bg-gradient-to-br from-amber-300 to-yellow-500">
+                      {win.display_name[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-900 truncate">
+                      {win.display_name}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {new Date(win.won_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <Badge variant="default" className="text-xs">
+                    🏆 Ganador
+                  </Badge>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </CardContent>

@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { DrawSession, DrawParticipant } from '@/types/draw.types';
+import { DrawSession, DrawParticipant, DrawWinner } from '@/types/draw.types';
 
 export function useDrawSession(eventId: string | null) {
   const [session, setSession] = useState<DrawSession | null>(null);
   const [activeSession, setActiveSession] = useState<DrawSession | null>(null);
   const [participants, setParticipants] = useState<DrawParticipant[]>([]);
+  const [winners, setWinners] = useState<DrawWinner[]>([]);
   const [loading, setLoading] = useState(true);
   const [drawing, setDrawing] = useState(false);
   const fetchRef = useRef(false);
@@ -56,16 +57,31 @@ export function useDrawSession(eventId: string | null) {
     }
   }, [eventId]);
 
+  const fetchWinners = useCallback(async () => {
+    if (!eventId) return;
+    try {
+      const res = await fetch(`/api/events/${eventId}/draw/winners`);
+      const data = await res.json();
+      if (data.winners) {
+        setWinners(data.winners);
+      }
+    } catch (error) {
+      console.error('Error fetching winners:', error);
+    }
+  }, [eventId]);
+
   useEffect(() => {
     if (!eventId) {
       setSession(null);
       setActiveSession(null);
       setParticipants([]);
+      setWinners([]);
       setLoading(false);
       return;
     }
 
     fetchSession();
+    fetchWinners();
 
     // Suscribirse a cambios en draw_sessions vía Supabase Realtime
     const supabase = createClient();
@@ -122,10 +138,32 @@ export function useDrawSession(eventId: string | null) {
       )
       .subscribe();
 
+    // Suscribirse a cambios en draw_winners vía Supabase Realtime
+    const winnersChannel = supabase
+      .channel(`winners:${eventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'draw_winners',
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setWinners((prev) => [payload.new as DrawWinner, ...prev]);
+          } else if (payload.eventType === 'DELETE') {
+            setWinners((prev) => prev.filter(w => w.id !== payload.old?.id));
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(winnersChannel);
     };
-  }, [eventId, fetchSession]);
+  }, [eventId, fetchSession, fetchWinners]);
 
   // Inicializar el elemento de audio una sola vez
   useEffect(() => {
@@ -218,6 +256,8 @@ export function useDrawSession(eventId: string | null) {
         setSession(data.session);
         setActiveSession(null);
         setDrawing(false);
+        // Refrescar la lista de ganadores después de finalizar
+        fetchWinners();
         return data;
       } else {
         throw new Error(data.error || 'Error al finalizar el sorteo');
@@ -226,18 +266,45 @@ export function useDrawSession(eventId: string | null) {
       console.error('Error finishing draw:', error);
       throw error;
     }
-  }, [eventId]);
+  }, [eventId, fetchWinners]);
+
+  const clearWinners = useCallback(async () => {
+    if (!eventId) return;
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/draw/winners`, {
+        method: 'DELETE',
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setWinners([]);
+        // Refrescar los participantes para incluir a los que ya habían ganado
+        fetchParticipants();
+        return data;
+      } else {
+        throw new Error(data.error || 'Error al resetear el historial');
+      }
+    } catch (error) {
+      console.error('Error clearing winners:', error);
+      throw error;
+    }
+  }, [eventId, fetchWinners, fetchParticipants]);
 
   return {
     session,
     activeSession,
     participants,
+    winners,
     loading,
     drawing,
     fetchSession,
     fetchParticipants,
+    fetchWinners,
     startDraw,
     finishDraw,
+    clearWinners,
     playAudio,
     stopAudio,
   };

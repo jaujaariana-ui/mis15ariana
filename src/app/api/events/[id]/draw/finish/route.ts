@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
   getActiveDrawSession,
   updateDrawSession,
+  addDrawWinner,
 } from '@/services/draw.service';
 
 interface Props {
@@ -67,6 +68,22 @@ export async function POST(request: NextRequest, { params }: Props) {
       status: 'finished',
       finished_at: new Date().toISOString(),
     });
+
+    // Guardar el ganador en el historial
+    if (finishedSession.winner_participant_id && finishedSession.winner_display_name) {
+      try {
+        await addDrawWinner(
+          adminClient,
+          eventId,
+          finishedSession.winner_participant_id,
+          finishedSession.winner_display_name,
+          activeSession.id
+        );
+      } catch (winnerError) {
+        console.error('Error al guardar ganador en historial:', winnerError);
+        // No fallar el sorteo si no se puede guardar en el historial
+      }
+    }
 
     return NextResponse.json({
       session: finishedSession,

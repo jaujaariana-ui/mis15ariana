@@ -26,3 +26,13 @@ export interface DrawSessionResponse {
   session: DrawSession | null;
   activeSession: DrawSession | null;
 }
+
+export interface DrawWinner {
+  id: string;
+  event_id: string;
+  participant_id: string;
+  display_name: string;
+  session_id: string | null;
+  won_at: string;
+  created_at: string;
+}
