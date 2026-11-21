@@ -27,16 +27,26 @@ export default function DrawTab({ eventId }: DrawTabProps) {
 
   // Cuando el sorteo termina, mostrar el modal del ganador
   useEffect(() => {
-    if (session?.status === 'finished' && session.winner_display_name) {
+    if (session?.status === 'finished' && session.winner_display_name && session.winner_participant_id) {
+      // Primero intentar encontrar al ganador en la lista de participantes
       const winnerParticipant = participants.find(
         p => p.id === session.winner_participant_id
       );
       if (winnerParticipant) {
         setWinner(winnerParticipant);
         setShowModal(true);
+      } else if (!showModal) {
+        // Si participants aún no está cargado, crear un objeto mínimo con los datos de la sesión
+        // para que el modal se muestre de inmediato sin esperar a que carguen los participantes
+        setWinner({
+          id: session.winner_participant_id,
+          display_name: session.winner_display_name,
+          photo_count: 0,
+        });
+        setShowModal(true);
       }
     }
-  }, [session?.status, session?.winner_participant_id, participants]);
+  }, [session?.status, session?.winner_participant_id, session?.winner_display_name, participants, showModal]);
 
   // Cuando se resetean los ganadores (clear), cerrar el modal automáticamente
   useEffect(() => {
