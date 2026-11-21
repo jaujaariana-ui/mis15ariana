@@ -6,6 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { DrawParticipant, DrawWinner } from '@/types/draw.types';
 
 interface DrawManagerProps {
@@ -23,6 +31,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     startDraw,
     finishDraw,
     clearWinners,
+    resetDraw,
     fetchSession,
     playAudio,
     stopAudio,
@@ -30,7 +39,10 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
 
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [winner, setWinner] = useState<DrawParticipant | null>(null);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // Actualizar ganador cuando la sesión cambia
   useEffect(() => {
@@ -40,8 +52,17 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     }
   }, [session, participants]);
 
+  // Limpiar mensaje de éxito después de 3 segundos
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  // "Iniciar Sorteo" - Primera vez, limpia todo el historial
   const handleStartDraw = useCallback(async () => {
-    // Limpiar historial de ganadores y diálogos antes de iniciar
+    // Limpiar historial de ganadores antes del primer sorteo
     if (winners.length > 0) {
       try {
         await clearWinners();
@@ -51,6 +72,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     }
     setWinner(null);
     setError(null);
+    setSuccess(null);
 
     // Reproducir audio dentro del gesto del usuario (requerido en móviles)
     playAudio();
@@ -59,7 +81,6 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     try {
       const result = await startDraw(5000);
       if (result?.winner) {
-        // El ganador ya está seleccionado en el backend
         const w = result.participants?.find(
           (p: DrawParticipant) => p.id === result.winner.id
         );
@@ -72,15 +93,58 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     }
   }, [startDraw, clearWinners, playAudio, winners]);
 
+  // "Realizar Nuevo Sorteo" - Acumula ganadores sin borrar el historial
+  const handleNewDraw = useCallback(async () => {
+    setWinner(null);
+    setError(null);
+    setSuccess(null);
+
+    // Reproducir audio dentro del gesto del usuario (requerido en móviles)
+    playAudio();
+    setStarting(true);
+
+    try {
+      const result = await startDraw(5000);
+      if (result?.winner) {
+        const w = result.participants?.find(
+          (p: DrawParticipant) => p.id === result.winner.id
+        );
+        if (w) setWinner(w);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error al iniciar el sorteo');
+    } finally {
+      setStarting(false);
+    }
+  }, [startDraw, playAudio]);
+
   const handleFinishDraw = useCallback(async () => {
     // Detener audio dentro del gesto del usuario
     stopAudio();
     try {
       await finishDraw();
+      setSuccess('¡Ganador registrado en el historial!');
     } catch (err: any) {
       setError(err.message || 'Error al finalizar el sorteo');
     }
   }, [finishDraw, stopAudio]);
+
+  // "Resetear" - Limpia todo y cierra diálogos en todos los dispositivos
+  const handleReset = useCallback(async () => {
+    setResetting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await resetDraw();
+      setWinner(null);
+      setShowResetDialog(false);
+      setSuccess('Sorteo reiniciado correctamente');
+    } catch (err: any) {
+      setError(err.message || 'Error al resetear el sorteo');
+    } finally {
+      setResetting(false);
+    }
+  }, [resetDraw]);
 
   const avatarColors = [
     'bg-purple-500', 'bg-blue-500', 'bg-green-500',
@@ -104,6 +168,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -127,8 +192,18 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
         {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl p-3 flex items-center justify-between">
-            <span>{error}</span>
+            <span>⚠️ {error}</span>
             <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-2">
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Success */}
+        {success && (
+          <div className="bg-green-50 border border-green-100 text-green-600 text-sm rounded-xl p-3 flex items-center justify-between">
+            <span>✅ {success}</span>
+            <button onClick={() => setSuccess(null)} className="text-green-400 hover:text-green-600 ml-2">
               ✕
             </button>
           </div>
@@ -148,9 +223,9 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
           </div>
         </div>
 
-        {/* Controles */}
+        {/* Controles principales */}
         <div className="flex gap-3">
-          {/* Botón "INICIAR SORTEO" - aparece cuando no hay sesión o cuando la sesión está finalizada */}
+          {/* Botón "INICIAR SORTEO" - primera vez, sin historial */}
           {!activeSession && !session && (
             <Button
               onClick={handleStartDraw}
@@ -171,10 +246,10 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
             </Button>
           )}
 
-          {/* Botón "REALIZAR NUEVO SORTEO" - aparece solo cuando hay una sesión finalizada */}
-          {session?.status === 'finished' && (
+          {/* Botón "REALIZAR NUEVO SORTEO" - acumula ganadores sin borrar */}
+          {session?.status === 'finished' && participants.length > 0 && (
             <Button
-              onClick={handleStartDraw}
+              onClick={handleNewDraw}
               disabled={starting || participants.length === 0}
               className="flex-1 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white font-semibold"
             >
@@ -204,6 +279,30 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
             </Button>
           )}
         </div>
+
+        {/* Botón Resetear - solo cuando hay ganadores acumulados */}
+        {winners.length > 0 && !activeSession && (
+          <div className="flex gap-3">
+            <Button
+              onClick={() => setShowResetDialog(true)}
+              variant="outline"
+              className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+            >
+              <span className="mr-2">🗑️</span>
+              RESETEAR
+            </Button>
+          </div>
+        )}
+
+        {/* Sin participantes disponibles para nuevo sorteo */}
+        {session?.status === 'finished' && participants.length === 0 && winners.length > 0 && (
+          <div className="bg-amber-50 border border-amber-100 text-amber-700 text-sm rounded-xl p-4 text-center">
+            <p className="font-medium">Todos los participantes han ganado</p>
+            <p className="text-xs mt-1 text-amber-600">
+              Presiona "Resetear" para reiniciar el sorteo desde cero
+            </p>
+          </div>
+        )}
 
         {/* Ganador */}
         {session?.status === 'finished' && winner && (
@@ -307,5 +406,51 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
         )}
       </CardContent>
     </Card>
+
+    {/* Diálogo de confirmación para Resetear */}
+    <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <span className="text-xl">⚠️</span>
+            ¿Resetear el sorteo?
+          </DialogTitle>
+          <DialogDescription className="text-sm text-slate-600">
+            Esta acción eliminará todo el historial de ganadores ({winners.length}{' '}
+            {winners.length === 1 ? 'ganador' : 'ganadores'}) y reiniciará el sorteo
+            desde cero. Todos los dispositivos conectados cerrarán los diálogos abiertos.
+            <br />
+            <span className="font-medium text-red-600">Esta acción no se puede deshacer.</span>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            onClick={() => setShowResetDialog(false)}
+            disabled={resetting}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleReset}
+            disabled={resetting}
+          >
+            {resetting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Reiniciando...
+              </>
+            ) : (
+              <>
+                <span className="mr-2">🗑️</span>
+                Sí, Resetear
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

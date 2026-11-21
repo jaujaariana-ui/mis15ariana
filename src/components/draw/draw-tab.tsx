@@ -15,6 +15,7 @@ export default function DrawTab({ eventId }: DrawTabProps) {
     session,
     activeSession,
     participants,
+    winners,
     loading,
     drawing,
     startDraw,
@@ -36,6 +37,14 @@ export default function DrawTab({ eventId }: DrawTabProps) {
       }
     }
   }, [session?.status, session?.winner_participant_id, participants]);
+
+  // Cuando se resetean los ganadores (clear), cerrar el modal automáticamente
+  useEffect(() => {
+    if (winners.length === 0 && showModal) {
+      setShowModal(false);
+      setWinner(null);
+    }
+  }, [winners.length, showModal]);
 
   const handleModalClose = useCallback(() => {
     setShowModal(false);

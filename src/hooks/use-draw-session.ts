@@ -127,6 +127,12 @@ export function useDrawSession(eventId: string | null) {
                 setDrawing(false);
                 setActiveSession(null);
               }
+              // Si cambió a cancelled (reset), limpiar estado
+              if (newSession.status === 'cancelled') {
+                setDrawing(false);
+                setActiveSession(null);
+                stopAudio();
+              }
             }
           } else if (payload.eventType === 'DELETE') {
             if (oldSession) {
@@ -292,6 +298,36 @@ export function useDrawSession(eventId: string | null) {
     }
   }, [eventId, fetchWinners, fetchParticipants]);
 
+  const resetDraw = useCallback(async () => {
+    if (!eventId) return;
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/draw/reset`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Limpiar todo el estado local
+        setWinners([]);
+        setSession(null);
+        setActiveSession(null);
+        setDrawing(false);
+        stopAudio();
+        // Refrescar participantes y sesión
+        fetchParticipants();
+        fetchSession();
+        return data;
+      } else {
+        throw new Error(data.error || 'Error al resetear el sorteo');
+      }
+    } catch (error) {
+      console.error('Error resetting draw:', error);
+      throw error;
+    }
+  }, [eventId, fetchWinners, fetchParticipants, fetchSession, stopAudio]);
+
   return {
     session,
     activeSession,
@@ -305,6 +341,7 @@ export function useDrawSession(eventId: string | null) {
     startDraw,
     finishDraw,
     clearWinners,
+    resetDraw,
     playAudio,
     stopAudio,
   };
