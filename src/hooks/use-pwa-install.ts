@@ -87,6 +87,8 @@ export function usePwaInstall(): UsePwaInstallResult {
       setIsInstalled(true);
       try {
         sessionStorage.removeItem(PWA_INSTALL_DISMISSED_KEY);
+        // Marcar que la app fue instalada para que el banner lo detecte
+        localStorage.setItem('xalt:pwa-installed-previous', '1');
       } catch {
         // almacenamiento no disponible
       }
