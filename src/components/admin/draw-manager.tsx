@@ -118,7 +118,13 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     }
   }, [startDraw, playAudio]);
 
+  const [finishing, setFinishing] = useState(false);
+
   const handleFinishDraw = useCallback(async () => {
+    // Prevenir clicks múltiples
+    if (finishing) return;
+    setFinishing(true);
+
     // Detener audio dentro del gesto del usuario
     stopAudio();
     try {
@@ -126,8 +132,10 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
       setSuccess('¡Ganador registrado en el historial!');
     } catch (err: any) {
       setError(err.message || 'Error al finalizar el sorteo');
+    } finally {
+      setFinishing(false);
     }
-  }, [finishDraw, stopAudio]);
+  }, [finishDraw, stopAudio, finishing]);
 
   // "Resetear" - Limpia todo y cierra diálogos en todos los dispositivos
   const handleReset = useCallback(async () => {
@@ -273,9 +281,19 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
               onClick={handleFinishDraw}
               variant="destructive"
               className="flex-1"
+              disabled={finishing}
             >
-              <span className="mr-2">⏹</span>
-              DETENER
+              {finishing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Deteniendo...
+                </>
+              ) : (
+                <>
+                  <span className="mr-2">⏹</span>
+                  DETENER
+                </>
+              )}
             </Button>
           )}
         </div>

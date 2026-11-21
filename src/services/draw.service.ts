@@ -204,6 +204,7 @@ export async function getDrawWinners(
 
 /**
  * Agregar un ganador al historial.
+ * Verifica primero si ya existe un ganador para la misma sesión para evitar duplicados.
  */
 export async function addDrawWinner(
   supabase: SupabaseClient,
@@ -211,7 +212,35 @@ export async function addDrawWinner(
   participantId: string,
   displayName: string,
   sessionId?: string
-): Promise<DrawWinner> {
+): Promise<DrawWinner | null> {
+  // Verificar si ya existe un ganador para esta sesión
+  if (sessionId) {
+    const { data: existing } = await supabase
+      .from('draw_winners')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('session_id', sessionId)
+      .single();
+
+    if (existing) {
+      console.log('Ganador ya existe para esta sesión, omitiendo insert:', sessionId);
+      return null;
+    }
+  }
+
+  // También verificar si ya existe un ganador con el mismo participant_id y event_id
+  const { data: existingByParticipant } = await supabase
+    .from('draw_winners')
+    .select('id')
+    .eq('event_id', eventId)
+    .eq('participant_id', participantId)
+    .single();
+
+  if (existingByParticipant) {
+    console.log('Este participante ya ganó en este evento, omitiendo insert:', participantId);
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('draw_winners')
     .insert({

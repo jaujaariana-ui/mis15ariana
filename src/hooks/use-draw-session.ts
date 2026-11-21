@@ -63,7 +63,12 @@ export function useDrawSession(eventId: string | null) {
       const res = await fetch(`/api/events/${eventId}/draw/winners`);
       const data = await res.json();
       if (data.winners) {
-        setWinners(data.winners);
+        // Eliminar duplicados basados en participant_id para evitar ganadores repetidos
+        const uniqueWinners = data.winners.filter(
+          (w: DrawWinner, index: number, self: DrawWinner[]) =>
+            index === self.findIndex((other: DrawWinner) => other.participant_id === w.participant_id)
+        );
+        setWinners(uniqueWinners);
       }
     } catch (error) {
       console.error('Error fetching winners:', error);
@@ -157,7 +162,15 @@ export function useDrawSession(eventId: string | null) {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setWinners((prev) => [payload.new as DrawWinner, ...prev]);
+            const newWinner = payload.new as DrawWinner;
+            setWinners((prev) => {
+              // Evitar duplicados: si ya existe el mismo id o el mismo participant_id, no agregar
+              const exists = prev.some(
+                w => w.id === newWinner.id || w.participant_id === newWinner.participant_id
+              );
+              if (exists) return prev;
+              return [newWinner, ...prev];
+            });
           } else if (payload.eventType === 'DELETE') {
             setWinners((prev) => prev.filter(w => w.id !== payload.old?.id));
           }
