@@ -139,7 +139,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
 
         {/* Controles */}
         <div className="flex gap-3">
-          {!activeSession && (
+          {session?.status === 'finished' && (
             <Button
               onClick={handleStartDraw}
               disabled={starting || participants.length === 0}
@@ -152,8 +152,8 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
                 </>
               ) : (
                 <>
-                  <span className="mr-2">🎲</span>
-                  INICIAR SORTEO
+                  <span className="mr-2">🔄</span>
+                  REALIZAR NUEVO SORTEO
                 </>
               )}
             </Button>
@@ -170,7 +170,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
             </Button>
           )}
 
-          {session?.status === 'finished' && (
+          {!activeSession && session?.status !== 'finished' && (
             <Button
               onClick={handleStartDraw}
               disabled={starting || participants.length === 0}
@@ -183,8 +183,8 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
                 </>
               ) : (
                 <>
-                  <span className="mr-2">🔄</span>
-                  REALIZAR NUEVO SORTEO
+                  <span className="mr-2">🎲</span>
+                  INICIAR SORTEO
                 </>
               )}
             </Button>
