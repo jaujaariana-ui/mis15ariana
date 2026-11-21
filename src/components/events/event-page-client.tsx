@@ -180,6 +180,27 @@ export default function EventPageClient({ event }: Props) {
           </div>
         )}
 
+        {/* Guest Identity Badge */}
+        {guest && (
+          <div className="mb-4">
+            <div className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-300 to-yellow-500 flex items-center justify-center shadow-sm ring-2 ring-amber-200/50 shrink-0">
+                <span className="text-white font-bold text-lg">
+                  {guest.display_name[0].toUpperCase()}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">
+                  Conectado como
+                </p>
+                <p className="text-sm font-semibold text-slate-800 truncate">
+                  {guest.display_name}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Upload Actions */}
         {guest && !showConsent && (
           <div className="mb-6">
