@@ -32,6 +32,10 @@ export function useDrawSession(eventId: string | null) {
       }
       if (sessionData.activeSession) {
         setActiveSession(sessionData.activeSession);
+        // Si hay una sesión activa con status 'running', iniciar la animación
+        if (sessionData.activeSession.status === 'running') {
+          setDrawing(true);
+        }
       }
       if (participantsData.participants) {
         setParticipants(participantsData.participants);
