@@ -88,6 +88,27 @@ export default function DrawTab({ eventId }: DrawTabProps) {
         />
       )}
 
+      {/* Overlay del carrusel - se muestra encima del modal cuando el sorteo está en curso */}
+      {drawing && (
+        <div
+          className="fixed inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
+          style={{ zIndex: 99999 }}
+        >
+          <div className="w-full max-w-2xl px-4">
+            <div className="text-center mb-4">
+              <p className="text-white text-xl font-bold animate-pulse">
+                🎰 Sorteo en curso...
+              </p>
+            </div>
+            <DrawCarousel
+              participants={participants}
+              isDrawing={true}
+              winnerId={null}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Sin participantes */}
       {participants.length === 0 && !loading && (
         <div className="mt-8 text-center text-slate-400 text-sm">

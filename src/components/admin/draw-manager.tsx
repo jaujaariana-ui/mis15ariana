@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import DrawCarousel from '@/components/draw/draw-carousel';
 import { DrawParticipant, DrawWinner } from '@/types/draw.types';
 
 interface DrawManagerProps {
@@ -471,26 +470,6 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
       </DialogContent>
     </Dialog>
 
-    {/* Overlay del carrusel - se muestra encima de todo cuando el sorteo está en curso */}
-    {drawing && (
-      <div
-        className="fixed inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
-        style={{ zIndex: 99999 }}
-      >
-        <div className="w-full max-w-2xl px-4">
-          <div className="text-center mb-4">
-            <p className="text-white text-xl font-bold animate-pulse">
-              🎰 Sorteo en curso...
-            </p>
-          </div>
-          <DrawCarousel
-            participants={participants}
-            isDrawing={true}
-            winnerId={null}
-          />
-        </div>
-      </div>
-    )}
     </>
   );
 }
