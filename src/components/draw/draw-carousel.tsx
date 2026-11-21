@@ -34,7 +34,13 @@ export default function DrawCarousel({
   const [rotation, setRotation] = useState(0);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const animationRef = useRef<number | undefined>(undefined);
-  const startTimeRef = useRef<number>(0);
+  const rotationRef = useRef(0);
+  const isDrawingRef = useRef(isDrawing);
+
+  // Mantener isDrawing sincronizado en el ref para evitar closure stale
+  useEffect(() => {
+    isDrawingRef.current = isDrawing;
+  }, [isDrawing]);
 
   // Asignar colores a cada participante
   const participantColors = useMemo(() => {
@@ -61,28 +67,25 @@ export default function DrawCarousel({
     return positions;
   }, [participants]);
 
-  // Animación del carrusel
+  // Animación continua del carrusel mientras isDrawing sea true
   useEffect(() => {
     if (!isDrawing || participants.length === 0) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = undefined;
       }
       return;
     }
 
-    startTimeRef.current = performance.now();
     let lastHighlighted = -1;
 
-    const animate = (time: number) => {
-      const elapsed = time - startTimeRef.current;
-      const progress = Math.min(elapsed / animationDurationMs, 1);
+    const animate = () => {
+      // Solo continuar si isDrawing sigue siendo true
+      if (!isDrawingRef.current) return;
 
-      // Easing: desacelerar al final
-      const eased = 1 - Math.pow(1 - progress, 3);
-
-      // Rotación: más rápido al inicio, más lento al final
-      const speed = isDrawing ? (1 - eased) * 10 + 0.5 : 0;
-      const newRotation = rotation + speed;
+      // Rotación continua con velocidad constante
+      rotationRef.current += 2;
+      const newRotation = rotationRef.current;
 
       setRotation(newRotation);
 
@@ -98,14 +101,7 @@ export default function DrawCarousel({
         lastHighlighted = currentHighlight;
       }
 
-      if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        // Animación completada
-        if (onFinishAnimation) {
-          onFinishAnimation();
-        }
-      }
+      animationRef.current = requestAnimationFrame(animate);
     };
 
     animationRef.current = requestAnimationFrame(animate);
@@ -113,9 +109,10 @@ export default function DrawCarousel({
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = undefined;
       }
     };
-  }, [isDrawing, participants.length, animationDurationMs, onFinishAnimation]);
+  }, [participants.length]);
 
   if (participants.length === 0) {
     return (

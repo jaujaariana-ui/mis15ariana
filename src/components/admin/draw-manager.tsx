@@ -474,8 +474,8 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     {/* Overlay del carrusel - se muestra encima de todo cuando el sorteo está en curso */}
     {drawing && (
       <div
-        className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
-        style={{ zIndex: 9999 }}
+        className="fixed inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
+        style={{ zIndex: 99999 }}
       >
         <div className="w-full max-w-2xl px-4">
           <div className="text-center mb-4">
