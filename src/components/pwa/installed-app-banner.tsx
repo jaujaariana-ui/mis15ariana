@@ -3,37 +3,21 @@
 import { useEffect, useState } from 'react';
 import { isStandaloneDisplay } from '@/lib/pwa';
 
-const INSTALLED_KEY = 'xalt:pwa-installed-previous';
-
-function checkAndShow() {
-  // Si ya está en modo standalone (app instalada y abierta), no mostrar nada
-  if (isStandaloneDisplay()) return false;
-
-  let wasInstalled = false;
-  try {
-    wasInstalled = localStorage.getItem(INSTALLED_KEY) === '1';
-  } catch {
-    // Almacenamiento no disponible
-  }
-  return wasInstalled;
-}
-
 export default function InstalledAppBanner() {
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    // Verificación inicial: si ya instaló antes y vuelve al navegador
-    if (checkAndShow()) {
-      setShowBanner(true);
-    }
+    // No mostrar si ya está en la app instalada
+    if (isStandaloneDisplay()) return;
 
-    // Escuchar el evento de instalación para mostrar el banner automáticamente
+    // Solo mostrar el banner inmediatamente después de que el usuario instale la app
     const handleAppInstalled = () => {
+      // Pequeño delay para que el navegador complete la instalación
       setTimeout(() => {
-        if (checkAndShow()) {
+        if (!isStandaloneDisplay()) {
           setShowBanner(true);
         }
-      }, 500);
+      }, 800);
     };
 
     window.addEventListener('xalt:appinstalled', handleAppInstalled);
