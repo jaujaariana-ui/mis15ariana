@@ -24,20 +24,28 @@ export default function DrawTab({ eventId }: DrawTabProps) {
 
   const [winner, setWinner] = useState<DrawParticipant | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const lastProcessedWinnerRef = useRef<string | null>(null);
 
   // Cuando el sorteo termina, mostrar el modal del ganador
   useEffect(() => {
-    if (session?.status === 'finished' && session.winner_display_name && session.winner_participant_id) {
-      // Primero intentar encontrar al ganador en la lista de participantes
+    if (session?.status === 'finished' && session.winner_participant_id && session.winner_display_name) {
+      // Si ya procesamos este ganador, no hacer nada
+      if (lastProcessedWinnerRef.current === session.winner_participant_id) {
+        return;
+      }
+
+      // Marcar como procesado para evitar re-ejecuciones
+      lastProcessedWinnerRef.current = session.winner_participant_id;
+
+      // Intentar encontrar al ganador en la lista de participantes
       const winnerParticipant = participants.find(
         p => p.id === session.winner_participant_id
       );
       if (winnerParticipant) {
         setWinner(winnerParticipant);
         setShowModal(true);
-      } else if (!showModal) {
+      } else {
         // Si participants aún no está cargado, crear un objeto mínimo con los datos de la sesión
-        // para que el modal se muestre de inmediato sin esperar a que carguen los participantes
         setWinner({
           id: session.winner_participant_id,
           display_name: session.winner_display_name,
@@ -46,7 +54,7 @@ export default function DrawTab({ eventId }: DrawTabProps) {
         setShowModal(true);
       }
     }
-  }, [session?.status, session?.winner_participant_id, session?.winner_display_name, participants, showModal]);
+  }, [session?.status, session?.winner_participant_id, session?.winner_display_name, participants]);
 
   // Cuando se resetean los ganadores (clear), cerrar el modal automáticamente
   useEffect(() => {
@@ -58,19 +66,23 @@ export default function DrawTab({ eventId }: DrawTabProps) {
 
   // Cuando empieza un nuevo sorteo (drawing = true), cerrar el modal del ganador anterior
   useEffect(() => {
-    if (drawing && showModal) {
+    if (drawing) {
       setShowModal(false);
       setWinner(null);
+      // Resetear el ref para permitir mostrar el modal del nuevo ganador
+      lastProcessedWinnerRef.current = null;
     }
-  }, [drawing, showModal]);
+  }, [drawing]);
 
   // Cuando la sesión cambia de 'finished' a 'running' (nueva sesión), cerrar el modal
   useEffect(() => {
-    if (session?.status === 'running' && showModal) {
+    if (session?.status === 'running') {
       setShowModal(false);
       setWinner(null);
+      // Resetear el ref para permitir mostrar el modal del nuevo ganador
+      lastProcessedWinnerRef.current = null;
     }
-  }, [session?.status, showModal]);
+  }, [session?.status]);
 
   const handleModalClose = useCallback(() => {
     setShowModal(false);
