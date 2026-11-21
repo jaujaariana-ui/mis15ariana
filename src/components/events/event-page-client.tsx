@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Event } from '@/types/event.types';
 import { Photo } from '@/types/photo.types';
 import { useGallery } from '@/hooks/use-gallery';
@@ -33,6 +33,7 @@ export default function EventPageClient({ event }: Props) {
   const [showConsent, setShowConsent] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'gallery' | 'draw'>('gallery');
+  const drawCheckRef = useRef(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraKey, setCameraKey] = useState(0);
@@ -133,6 +134,48 @@ export default function EventPageClient({ event }: Props) {
   const handleLightboxClose = useCallback(() => {
     setLightboxIndex(null);
   }, []);
+
+  // Escuchar cambios del sorteo vía Supabase Realtime para cambiar automáticamente al tab "Sorteo"
+  useEffect(() => {
+    import('@/lib/supabase/client').then(({ createClient }) => {
+      const supabase = createClient();
+      const channel = supabase
+        .channel(`draw-tab:${event.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'draw_sessions',
+            filter: `event_id=eq.${event.id}`,
+          },
+          (payload) => {
+            const newSession = payload.new as { status?: string } | undefined;
+            // Si se crea un sorteo nuevo o cambia a 'running', ir directo al tab sorteo
+            if (newSession && (newSession.status === 'running' || newSession.status === 'pending')) {
+              if (!drawCheckRef.current) {
+                drawCheckRef.current = true;
+                setActiveTab('draw');
+              }
+            }
+            // Si el sorteo se cancela o termina, volver a galería después de un delay
+            if (newSession && (newSession.status === 'cancelled' || newSession.status === 'finished')) {
+              drawCheckRef.current = false;
+              setTimeout(() => {
+                if (!drawCheckRef.current) {
+                  setActiveTab('gallery');
+                }
+              }, 10000);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    });
+  }, [event.id]);
 
   const currentLightboxPhoto = lightboxIndex !== null ? photos[lightboxIndex] || null : null;
 
