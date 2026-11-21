@@ -9,10 +9,23 @@ CREATE TABLE IF NOT EXISTS draw_winners (
   event_id UUID REFERENCES events(id) ON DELETE CASCADE NOT NULL,
   participant_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL NOT NULL,
   display_name TEXT NOT NULL,
-  session_id UUID REFERENCES draw_sessions(id) ON DELETE SET NULL,
+  session_id UUID,
   won_at TIMESTAMPTZ DEFAULT now(),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Agregar foreign key a draw_sessions si la tabla existe
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'draw_sessions'
+  ) THEN
+    ALTER TABLE draw_winners
+      ADD CONSTRAINT draw_winners_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES draw_sessions(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- Índice para consultas rápidas por evento
 CREATE INDEX IF NOT EXISTS idx_draw_winners_event ON draw_winners(event_id);
@@ -59,5 +72,13 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Habilitar Realtime para draw_winners
-ALTER PUBLICATION supabase_realtime ADD TABLE draw_winners;
+-- Habilitar Realtime para draw_winners (idempotente: no falla si ya está agregada)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'draw_winners'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE draw_winners;
+  END IF;
+END $$;
