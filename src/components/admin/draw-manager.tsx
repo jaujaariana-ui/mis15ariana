@@ -22,8 +22,6 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     drawing,
     startDraw,
     finishDraw,
-    clearWinners,
-    fetchSession,
     playAudio,
     stopAudio,
   } = useDrawSession(eventId);
@@ -41,18 +39,11 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
   }, [session, participants]);
 
   const handleStartDraw = useCallback(async () => {
-    // Si ya hay ganadores acumulados, resetear el historial antes de iniciar
-    if (winners.length > 0) {
-      try {
-        await clearWinners();
-      } catch (err) {
-        console.error('Error al resetear ganadores:', err);
-      }
-    }
     // Reproducir audio dentro del gesto del usuario (requerido en móviles)
     playAudio();
     setStarting(true);
     setError(null);
+    setWinner(null);
 
     try {
       const result = await startDraw(5000);
@@ -68,7 +59,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
     } finally {
       setStarting(false);
     }
-  }, [startDraw, playAudio, clearWinners, winners]);
+  }, [startDraw, playAudio]);
 
   const handleFinishDraw = useCallback(async () => {
     // Detener audio dentro del gesto del usuario
