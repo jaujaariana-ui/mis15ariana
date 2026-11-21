@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { DrawParticipant } from '@/types/draw.types';
 
 interface DrawCarouselProps {
@@ -11,97 +11,162 @@ interface DrawCarouselProps {
   onFinishAnimation?: () => void;
 }
 
-const SPHERE_COLORS = [
-  'from-amber-300 to-yellow-500',
-  'from-rose-300 to-pink-500',
-  'from-sky-300 to-blue-500',
-  'from-emerald-300 to-green-500',
-  'from-violet-300 to-purple-500',
-  'from-orange-300 to-red-500',
-  'from-teal-300 to-cyan-500',
-  'from-fuchsia-300 to-pink-500',
-  'from-lime-300 to-green-500',
-  'from-indigo-300 to-blue-500',
-];
+// Ancho de cada tarjeta + gap (responsive)
+const getCardWidth = () => {
+  if (typeof window === 'undefined') return 140;
+  const w = window.innerWidth;
+  if (w < 640) return 120; // mobile
+  if (w < 768) return 130; // tablet
+  return 150; // desktop
+};
 
 export default function DrawCarousel({
   participants,
   isDrawing,
   winnerId,
-  animationDurationMs = 5000,
   onFinishAnimation,
 }: DrawCarouselProps) {
-  const [rotation, setRotation] = useState(0);
-  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const trackRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | undefined>(undefined);
-  const rotationRef = useRef(0);
   const isDrawingRef = useRef(isDrawing);
+  const offsetRef = useRef(0);
+  const cardWidthRef = useRef(getCardWidth());
+  const winnerIdRef = useRef(winnerId);
+  const hasStoppedRef = useRef(false);
 
-  // Mantener isDrawing sincronizado en el ref para evitar closure stale
+  // Mantener refs sincronizados
   useEffect(() => {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
+  useEffect(() => {
+    winnerIdRef.current = winnerId;
+  }, [winnerId]);
 
-  // Asignar colores a cada participante
-  const participantColors = useMemo(() => {
-    return participants.map((_, i) => SPHERE_COLORS[i % SPHERE_COLORS.length]);
-  }, [participants]);
+  // Actualizar cardWidth al redimensionar
+  useEffect(() => {
+    const handleResize = () => {
+      cardWidthRef.current = getCardWidth();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  // Calcular posiciones en el carrusel 3D
-  const spherePositions = useMemo(() => {
+  // Triplar los participantes para loop infinito sin saltos
+  const extendedParticipants = useMemo(() => {
     if (participants.length === 0) return [];
-
-    const count = participants.length;
-    const radius = Math.min(120, count * 18);
-    const positions = [];
-
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      positions.push({
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
-        z: Math.sin(angle) * radius * 0.3,
-        angle,
-      });
-    }
-    return positions;
+    // Necesitamos al menos 3 copias para loop sin saltos
+    const tripled = [...participants, ...participants, ...participants];
+    return tripled;
   }, [participants]);
 
-  // Animación continua del carrusel mientras isDrawing sea true
+  const totalWidth = useMemo(() => {
+    return extendedParticipants.length * cardWidthRef.current;
+  }, [extendedParticipants.length]);
+
+  // Animación del carrusel horizontal
   useEffect(() => {
     if (!isDrawing || participants.length === 0) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = undefined;
       }
+      hasStoppedRef.current = false;
       return;
     }
 
-    let lastHighlighted = -1;
+    hasStoppedRef.current = false;
+    let speed = 2; // velocidad inicial baja
+    const maxSpeed = 15; // velocidad máxima
+    const accelerationRate = 0.3; // tasa de aceleración
 
     const animate = () => {
-      // Solo continuar si isDrawing sigue siendo true
-      if (!isDrawingRef.current) return;
+      if (!isDrawingRef.current) {
+        // El sorteo terminó - verificar si hay ganador
+        const wId = winnerIdRef.current;
+        if (wId && !hasStoppedRef.current) {
+          hasStoppedRef.current = true;
+          // Detener en el ganador con desaceleración
+          decelerateToWinner(wId);
+        }
+        return;
+      }
 
-      // Rotación continua con velocidad constante
-      rotationRef.current += 2;
-      const newRotation = rotationRef.current;
+      // Acelerar hasta velocidad máxima
+      if (speed < maxSpeed) {
+        speed = Math.min(speed + accelerationRate, maxSpeed);
+      }
 
-      setRotation(newRotation);
+      offsetRef.current -= speed;
 
-      // Calcular qué esfera está en el frente
-      const normalizedRotation = ((newRotation % 360) + 360) % 360;
-      const degreesPerSphere = 360 / participants.length;
-      const currentHighlight = Math.floor(
-        (normalizedRotation + degreesPerSphere / 2) / degreesPerSphere
-      ) % participants.length;
+      // Loop infinito: cuando pasamos un set completo, resetear offset
+      const singleSetWidth = participants.length * cardWidthRef.current;
+      if (offsetRef.current <= -singleSetWidth) {
+        offsetRef.current += singleSetWidth;
+      } else if (offsetRef.current > 0) {
+        offsetRef.current -= singleSetWidth;
+      }
 
-      if (currentHighlight !== lastHighlighted) {
-        setHighlightedIndex(currentHighlight);
-        lastHighlighted = currentHighlight;
+      // Aplicar transformación directamente al DOM (sin React state)
+      const track = trackRef.current;
+      if (track) {
+        // Centrar el carrusel: offset + centro de la viewport
+        track.style.transform = `translateX(${offsetRef.current}px)`;
       }
 
       animationRef.current = requestAnimationFrame(animate);
+    };
+
+    const decelerateToWinner = (winnerId: string) => {
+      const winnerIdx = participants.findIndex(p => p.id === winnerId);
+      if (winnerIdx === -1) return;
+
+      const cardW = cardWidthRef.current;
+      const singleSetWidth = participants.length * cardW;
+
+      // Calcular la posición donde el ganador está en el centro
+      // El centro del carrusel visible es el centro del contenedor
+      // Queremos que la tarjeta del ganador esté centrada
+      const targetOffset = -(winnerIdx * cardW);
+
+      // Ajustar para que esté en el set central (segunda copia)
+      let adjustedTarget = targetOffset - singleSetWidth;
+
+      // Desaceleración progresiva
+      let currentSpeed = speed;
+      const decelerate = () => {
+        currentSpeed *= 0.95; // reducir velocidad 5% por frame
+
+        if (currentSpeed < 0.5) {
+          // Detener exactamente en el ganador
+          offsetRef.current = adjustedTarget;
+          const track = trackRef.current;
+          if (track) {
+            track.style.transform = `translateX(${offsetRef.current}px)`;
+            track.style.transition = 'transform 0.3s ease-out';
+          }
+          if (onFinishAnimation) {
+            onFinishAnimation();
+          }
+          return;
+        }
+
+        // Mover hacia el objetivo
+        const diff = adjustedTarget - offsetRef.current;
+        if (Math.abs(diff) < currentSpeed) {
+          offsetRef.current = adjustedTarget;
+        } else {
+          offsetRef.current += Math.sign(diff) * currentSpeed;
+        }
+
+        const track = trackRef.current;
+        if (track) {
+          track.style.transform = `translateX(${offsetRef.current}px)`;
+        }
+
+        requestAnimationFrame(decelerate);
+      };
+
+      requestAnimationFrame(decelerate);
     };
 
     animationRef.current = requestAnimationFrame(animate);
@@ -111,8 +176,19 @@ export default function DrawCarousel({
         cancelAnimationFrame(animationRef.current);
         animationRef.current = undefined;
       }
+      hasStoppedRef.current = false;
     };
-  }, [participants.length]);
+  }, [participants, onFinishAnimation]);
+
+  // Limpiar transición al desmontar
+  useEffect(() => {
+    return () => {
+      const track = trackRef.current;
+      if (track) {
+        track.style.transition = '';
+      }
+    };
+  }, []);
 
   if (participants.length === 0) {
     return (
@@ -136,64 +212,92 @@ export default function DrawCarousel({
   }
 
   return (
-    <div className="relative w-full flex flex-col items-center py-8">
-      {/* Carrusel 3D */}
+    <div className="relative w-full flex flex-col items-center py-4 md:py-8">
+      {/* Indicador central - flecha en la parte superior */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
+        <div className="w-0 h-0 border-l-[12px] border-r-[12px] border-t-[16px] border-l-transparent border-r-transparent border-t-amber-500 drop-shadow-lg" />
+        <div className="w-1 h-4 bg-amber-500" />
+      </div>
+
+      {/* Línea vertical del indicador */}
+      <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-gradient-to-b from-amber-500 via-amber-400/50 to-transparent z-10 pointer-events-none" />
+
+      {/* Contenedor del carrusel con máscara de fade en los extremos */}
       <div
-        className="relative w-full"
+        className="relative w-full overflow-hidden"
         style={{
-          height: 200,
-          perspective: '1000px',
-          perspectiveOrigin: '50% 50%',
+          height: '120px',
+          maskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
         }}
       >
+        {/* Track que se desplaza horizontalmente */}
         <div
-          className="relative w-full h-full flex items-center justify-center"
+          ref={trackRef}
+          className="flex items-center h-full will-change-transform"
           style={{
-            transformStyle: 'preserve-3d',
-            transform: `rotateY(${rotation}deg)`,
-            transition: isDrawing ? 'none' : 'transform 0.5s ease-out',
+            width: `${totalWidth}px`,
           }}
         >
-          {participants.map((participant, index) => {
-            const pos = spherePositions[index];
+          {extendedParticipants.map((participant, index) => {
+            const originalIndex = index % participants.length;
             const isWinner = winnerId === participant.id;
-            const isHighlighted = highlightedIndex === index;
-
-            // Calcular escala y opacidad basada en la posición Z
-            const scale = 0.7 + (pos.z + 50) / 200;
-            const opacity = 0.5 + (pos.z + 50) / 200;
 
             return (
               <div
-                key={participant.id}
-                className={`absolute transition-all duration-300 ${
-                  isWinner ? 'z-50' : 'z-10'
-                }`}
+                key={`${participant.id}-${index}`}
+                className="flex-shrink-0 flex items-center justify-center"
                 style={{
-                  transform: `
-                    translateX(${pos.x}px)
-                    translateY(${pos.y * 0.5}px)
-                    translateZ(${pos.z}px)
-                    scale(${isWinner ? 1.3 : scale})
-                  `,
-                  opacity: isWinner ? 1 : opacity,
+                  width: `${cardWidthRef.current}px`,
+                  height: '100%',
                 }}
               >
                 <div
                   className={`
-                    w-16 h-16 rounded-full flex items-center justify-center
-                    bg-gradient-to-br ${participantColors[index]}
-                    shadow-lg
-                    ${isWinner ? 'ring-4 ring-amber-400 shadow-amber-200 shadow-xl' : ''}
-                    ${isHighlighted && !isWinner ? 'ring-2 ring-white/50' : ''}
+                    relative w-[90%] h-[70%] rounded-xl flex flex-col items-center justify-center
                     transition-all duration-300
+                    ${isWinner
+                      ? 'bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-500 shadow-2xl shadow-amber-200/50 ring-4 ring-amber-400 scale-110'
+                      : 'bg-gradient-to-br from-slate-100 to-slate-200 shadow-md border border-slate-200'
+                    }
                   `}
                 >
-                  <span className="text-white font-semibold text-xs text-center px-1 line-clamp-1">
-                    {participant.display_name.length > 8
-                      ? participant.display_name.slice(0, 7) + '…'
+                  {/* Inicial del participante */}
+                  <div
+                    className={`
+                      w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center mb-1
+                      ${isWinner
+                        ? 'bg-white/30'
+                        : 'bg-gradient-to-br from-amber-400 to-yellow-500'
+                      }
+                    `}
+                  >
+                    <span
+                      className={`
+                        font-bold text-sm md:text-base
+                        ${isWinner ? 'text-white' : 'text-white'}
+                      `}
+                    >
+                      {participant.display_name[0].toUpperCase()}
+                    </span>
+                  </div>
+
+                  {/* Nombre del participante */}
+                  <span
+                    className={`
+                      text-xs md:text-sm font-medium text-center px-1 line-clamp-1
+                      ${isWinner ? 'text-white font-bold' : 'text-slate-700'}
+                    `}
+                  >
+                    {participant.display_name.length > 12
+                      ? participant.display_name.slice(0, 11) + '…'
                       : participant.display_name}
                   </span>
+
+                  {/* Brillo decorativo para ganador */}
+                  {isWinner && (
+                    <div className="absolute inset-0 rounded-xl bg-white/20 animate-pulse" />
+                  )}
                 </div>
               </div>
             );
@@ -201,11 +305,19 @@ export default function DrawCarousel({
         </div>
       </div>
 
-      {/* Indicador de rotación */}
+      {/* Indicador inferior */}
       {isDrawing && (
-        <div className="mt-6 flex items-center gap-2 text-amber-600">
+        <div className="mt-4 flex items-center gap-2 text-amber-600">
           <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
           <span className="text-sm font-medium">Sorteo en curso...</span>
+        </div>
+      )}
+
+      {/* Indicador de ganador */}
+      {winnerId && !isDrawing && (
+        <div className="mt-4 flex items-center gap-2 text-amber-700">
+          <span className="text-lg">🏆</span>
+          <span className="text-sm font-semibold">Ganador seleccionado</span>
         </div>
       )}
     </div>
