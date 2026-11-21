@@ -156,10 +156,15 @@ export default function DrawWinnerModal({ winner, onClose }: DrawWinnerModalProp
           }`}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Fondo decorativo con gradiente */}
-          <div className="relative bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 rounded-3xl shadow-2xl border-2 border-amber-300 overflow-hidden">
-            {/* Decoración superior */}
-            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400" />
+          {/* Fondo con imagen Midnight Gold Quinceañera */}
+          <div className="relative rounded-3xl shadow-2xl border-2 border-amber-300 overflow-hidden" style={{ backgroundImage: "url('/Midnight Gold Quinceañera Invitation.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
+            {/* Overlay oscuro para legibilidad */}
+            <div className="absolute inset-0 bg-black/50" />
+
+            {/* Contenido sobre la imagen */}
+            <div className="relative">
+              {/* Decoración superior */}
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400" />
 
             {/* Botón de cerrar */}
             <button
@@ -234,6 +239,7 @@ export default function DrawWinnerModal({ winner, onClose }: DrawWinnerModalProp
             {/* Decoración inferior */}
             <div className="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400" />
           </div>
+        </div>
         </div>
       </div>
     </>
