@@ -150,6 +150,28 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
 
         {/* Controles */}
         <div className="flex gap-3">
+          {/* Botón "INICIAR SORTEO" - aparece cuando no hay sesión o cuando la sesión está finalizada */}
+          {!activeSession && !session && (
+            <Button
+              onClick={handleStartDraw}
+              disabled={starting || participants.length === 0}
+              className="flex-1 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white font-semibold"
+            >
+              {starting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Iniciando...
+                </>
+              ) : (
+                <>
+                  <span className="mr-2">🎲</span>
+                  INICIAR SORTEO
+                </>
+              )}
+            </Button>
+          )}
+
+          {/* Botón "REALIZAR NUEVO SORTEO" - aparece solo cuando hay una sesión finalizada */}
           {session?.status === 'finished' && (
             <Button
               onClick={handleStartDraw}
@@ -170,6 +192,7 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
             </Button>
           )}
 
+          {/* Botón "DETENER" - aparece cuando hay un sorteo en curso */}
           {activeSession?.status === 'running' && (
             <Button
               onClick={handleFinishDraw}
@@ -178,26 +201,6 @@ export default function DrawManager({ eventId }: DrawManagerProps) {
             >
               <span className="mr-2">⏹</span>
               DETENER
-            </Button>
-          )}
-
-          {!activeSession && session?.status !== 'finished' && (
-            <Button
-              onClick={handleStartDraw}
-              disabled={starting || participants.length === 0}
-              className="flex-1 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white font-semibold"
-            >
-              {starting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                  Iniciando...
-                </>
-              ) : (
-                <>
-                  <span className="mr-2">🎲</span>
-                  INICIAR SORTEO
-                </>
-              )}
             </Button>
           )}
         </div>
